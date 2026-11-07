@@ -477,23 +477,59 @@ func (a *App) cancelResolve() {
 	r.resolving = false
 }
 
-// launchCmd either enters the preview screen or downloads immediately.
+// launchCmd either enters the preview screen or downloads immediately. With
+// Real-Debrid on, the preview goes through it and never joins the swarm.
 func (a *App) launchCmd(magnet, name string, preview bool) tea.Cmd {
 	from := a.screen
 	if preview {
-		return func() (msg tea.Msg) {
-			defer guard(&msg, func(r any) tea.Msg {
-				return previewReadyMsg{magnet: magnet, name: name, from: from, err: fmt.Errorf("add panicked: %v", r)}
-			})
-			h, owned, err := a.eng.AddForPreview(magnet)
-			return previewReadyMsg{hash: h, magnet: magnet, name: name, from: from, owned: owned, err: err}
+		if cmd, ok := a.launchDebridPreview(previewSource{kind: sourceMagnet, value: magnet, name: name}, from); ok {
+			return cmd
 		}
+		return a.torrentMagnetPreviewCmd(magnet, name, from)
 	}
 	return a.addTorrentCmd(magnet, name)
 }
 
 func (a *App) launchTorrentURLPreviewCmd(rawURL, name string) tea.Cmd {
 	from := a.screen
+	if cmd, ok := a.launchDebridPreview(previewSource{kind: sourceTorrentURL, value: rawURL, name: name}, from); ok {
+		return cmd
+	}
+	return a.torrentURLPreviewCmd(rawURL, name, from)
+}
+
+func (a *App) launchTorrentFilePreviewCmd(path, name string) tea.Cmd {
+	from := a.screen
+	if cmd, ok := a.launchDebridPreview(previewSource{kind: sourceTorrentFile, value: path, name: name}, from); ok {
+		return cmd
+	}
+	return a.torrentFilePreviewCmd(path, name, from)
+}
+
+// torrentPreviewCmd opens src in the normal torrent preview, which joins
+// the swarm to read the metadata.
+func (a *App) torrentPreviewCmd(src previewSource, from screen) tea.Cmd {
+	switch src.kind {
+	case sourceTorrentURL:
+		return a.torrentURLPreviewCmd(src.value, src.name, from)
+	case sourceTorrentFile:
+		return a.torrentFilePreviewCmd(src.value, src.name, from)
+	default:
+		return a.torrentMagnetPreviewCmd(src.value, src.name, from)
+	}
+}
+
+func (a *App) torrentMagnetPreviewCmd(magnet, name string, from screen) tea.Cmd {
+	return func() (msg tea.Msg) {
+		defer guard(&msg, func(r any) tea.Msg {
+			return previewReadyMsg{magnet: magnet, name: name, from: from, err: fmt.Errorf("add panicked: %v", r)}
+		})
+		h, owned, err := a.eng.AddForPreview(magnet)
+		return previewReadyMsg{hash: h, magnet: magnet, name: name, from: from, owned: owned, err: err}
+	}
+}
+
+func (a *App) torrentURLPreviewCmd(rawURL, name string, from screen) tea.Cmd {
 	return func() (msg tea.Msg) {
 		defer guard(&msg, func(r any) tea.Msg {
 			return previewReadyMsg{magnet: rawURL, name: name, from: from, err: fmt.Errorf("add panicked: %v", r)}
@@ -508,8 +544,7 @@ func (a *App) launchTorrentURLPreviewCmd(rawURL, name string) tea.Cmd {
 	}
 }
 
-func (a *App) launchTorrentFilePreviewCmd(path, name string) tea.Cmd {
-	from := a.screen
+func (a *App) torrentFilePreviewCmd(path, name string, from screen) tea.Cmd {
 	return func() (msg tea.Msg) {
 		defer guard(&msg, func(r any) tea.Msg {
 			return previewReadyMsg{magnet: path, name: name, from: from, err: fmt.Errorf("add panicked: %v", r)}
