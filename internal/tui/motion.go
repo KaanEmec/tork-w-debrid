@@ -115,6 +115,9 @@ func (a *App) animating() bool {
 	if !a.motionOn() || a.motion.detached {
 		return false
 	}
+	if a.intro.active {
+		return !a.intro.poster // the intro owns the screen while it plays
+	}
 	if a.toast.text != "" && a.age(a.toast.born) < fadeFrames {
 		return true
 	}
@@ -135,7 +138,12 @@ func (a *App) animating() bool {
 	return false
 }
 
-func (a *App) frameRate() int { return appFPS }
+func (a *App) frameRate() int {
+	if a.intro.active {
+		return introFPS
+	}
+	return appFPS
+}
 
 // ensureFrame arms the clock when something starts moving. Exactly one
 // frameMsg is ever in flight.

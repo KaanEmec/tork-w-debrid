@@ -64,6 +64,7 @@ type App struct {
 	clipboardOutput io.Writer // shared with the foreground renderer
 	motion          motionState
 	debrid          debridStatus
+	intro           introState // the demoscene intro (J8.8), drawn over the current screen
 }
 
 // debridStatus is what the UI shows about Real-Debrid routing. The debrid
@@ -125,6 +126,8 @@ func (a *App) Init() tea.Cmd {
 	if a.startup != nil {
 		cmds = append(cmds, a.startup)
 		a.startup = nil
+	} else if intro := a.maybeStartIntro(); intro != nil {
+		cmds = append(cmds, intro) // once after each update; not when opening a torrent
 	}
 	return tea.Batch(cmds...)
 }
@@ -140,10 +143,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if a.intro.active {
+		if handled, cmd := a.updateIntro(msg); handled {
+			return a, cmd
+		}
+	}
 	switch msg := msg.(type) {
 	case frameMsg:
 		a.onFrame()
 		return a, nil
+
+	case replayIntroMsg:
+		return a, a.replayIntro()
 
 	case tea.WindowSizeMsg:
 		// viewDownloads re-derives the bar width from contentWidth every render
@@ -330,6 +341,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) View() string {
+	if a.intro.active {
+		return a.viewIntro()
+	}
 	if a.showHelp {
 		return a.viewHelp()
 	}

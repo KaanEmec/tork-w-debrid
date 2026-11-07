@@ -24,13 +24,14 @@ func (a *App) AttachSession(target *intake.Target) (tea.Cmd, error) {
 		a.startup = nil
 		return cmd, nil
 	}
+	intro := a.maybeStartIntro() // once after each update (J8.8)
 	if a.screen == screenSearch && !a.search.menuFocused {
-		return a.search.input.Focus(), nil
+		return tea.Batch(intro, a.search.input.Focus()), nil
 	}
 	if a.screen == screenSources {
-		return a.checkEnabledSources(false), nil
+		return tea.Batch(intro, a.checkEnabledSources(false)), nil
 	}
-	return nil, nil
+	return intro, nil
 }
 
 func (a *App) DetachSession() tea.Cmd {
