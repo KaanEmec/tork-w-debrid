@@ -25,11 +25,20 @@ type DebridConfig struct {
 	DeleteAfterDownload bool `yaml:"delete_after_download"`
 	// Provider names the debrid service; only "realdebrid" exists today.
 	Provider string `yaml:"provider"`
+	// Connections is how many connections one debrid file downloads with
+	// (roadmap D10): 1 to MaxDebridConnections, default 4.
+	Connections int `yaml:"connections"`
+	// MaxTotalConnections caps the connections of all files of one torrent
+	// together, split fairly between the files running: default 8.
+	MaxTotalConnections int `yaml:"max_total_connections"`
 }
 
 // DefaultDebridConfig is the debrid block a fresh config gets.
 func DefaultDebridConfig() DebridConfig {
-	return DebridConfig{Enabled: true, Provider: DebridProviderRealDebrid}
+	return DebridConfig{
+		Enabled: true, Provider: DebridProviderRealDebrid,
+		Connections: DefaultDebridConnections, MaxTotalConnections: DefaultDebridTotalConnections,
+	}
 }
 
 // WriteDebridEnabled saves debrid.enabled, keeping comments, unrelated keys

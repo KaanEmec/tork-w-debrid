@@ -28,6 +28,7 @@ func inCard(key, label string) keyHint  { return keyHint{key: key, label: label}
 var globalKeys = []keyHint{
 	inCard("F1 / F2", "home / latest results"),
 	inCard("F3 / F4", "downloads / sources"),
+	inCard("F5", "settings"),
 	inCard("tab / shift+tab", "home: focus controls; elsewhere: downloads / back"),
 	inCard("esc", "back or cancel current step"),
 	inCard("^d", "downloads"),
@@ -139,6 +140,9 @@ func (a *App) screenKeys() []keyHint {
 		}
 		return []keyHint{onStrip("enter", "on/off"), onStrip("a", "add"), onStrip("r", "check"), onStrip("esc", "back"), inCard("t", "test selected source"), inCard("↑↓", "choose"), inCard("space", "enable / disable"), inCard("e", "edit custom source"), inCard("x", "remove custom source"), inCard("pgup/pgdn", "page"), inCard("g/G", "top / bottom")}
 
+	case screenSettings:
+		return a.settingsKeys()
+
 	case screenHealth:
 		return []keyHint{
 			onStrip("↑↓", "move"),
@@ -236,6 +240,8 @@ func (a *App) screenTitle() string {
 		return "sources"
 	case screenHealth:
 		return "health"
+	case screenSettings:
+		return "settings"
 	default:
 		return "downloads"
 	}

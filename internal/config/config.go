@@ -111,6 +111,7 @@ type Config struct {
 	TorrentTuning         TorrentTuningConfig       `yaml:"torrent_tuning,omitempty"`
 	Direct                DirectConfig              `yaml:"direct"`
 	Debrid                DebridConfig              `yaml:"debrid"`
+	UI                    UIConfig                  `yaml:"ui"`
 	Providers             map[string]ProviderConfig `yaml:"providers"`
 
 	dir          string // ~/.tork, resolved at load time
@@ -223,6 +224,7 @@ func Default(dir string) *Config {
 		MetadataCache:         MetadataCacheConfig{Enabled: true, MaxMB: 256, MaxEntries: 512},
 		Direct:                DirectConfig{MaxConnections: 4, MinChunkSize: "10MB", EnableChunking: true},
 		Debrid:                DefaultDebridConfig(),
+		UI:                    DefaultUIConfig(),
 		Providers:             defaultProviders(),
 		dir:                   dir,
 		proxyRuntime:          runtime,
@@ -504,6 +506,9 @@ func LoadFrom(dir string) (*Config, error) {
 
 	cfg.dir = dir
 	mergeProviderDefaults(cfg, defaults)
+	if err := cfg.ValidateDebridConnections(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	cfg.DownloadDir = expandHome(cfg.DownloadDir)
 	if err := cfg.initProxyRuntime(); err != nil {
 		return nil, err
@@ -536,6 +541,9 @@ func LoadReadOnlyFrom(dir string) (*Config, error) {
 	}
 	cfg.dir = dir
 	mergeProviderDefaults(cfg, defaults)
+	if err := cfg.ValidateDebridConnections(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	cfg.DownloadDir = expandHome(cfg.DownloadDir)
 	if err := cfg.initProxyRuntime(); err != nil {
 		// A diagnostic load must be able to report a bad proxy URL; failing

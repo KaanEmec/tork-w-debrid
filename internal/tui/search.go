@@ -30,12 +30,6 @@ func (a *App) homeDestinations() []homeDest {
 	}
 }
 
-// openSettings opens Settings (F5). The settings screen lands with the
-// settings jobs (J5.1, J8.7); until then the menu row says so.
-func (a *App) openSettings() tea.Cmd {
-	return a.showToast("settings are coming soon", toastWarn, toastQuick)
-}
-
 // openHomeDest acts on a front-page menu row.
 func (a *App) openHomeDest(d homeDest) tea.Cmd {
 	if d.settings {

@@ -134,6 +134,8 @@ func (a *App) animating() bool {
 		return !a.preview.ready
 	case screenDownloads:
 		return a.downloadsAnimating()
+	case screenSettings:
+		return a.settingsAnimating()
 	}
 	return false
 }

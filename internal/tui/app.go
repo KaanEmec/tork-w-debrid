@@ -26,6 +26,7 @@ const (
 	screenDownloads
 	screenHealth
 	screenSources
+	screenSettings
 )
 
 type App struct {
@@ -48,6 +49,7 @@ type App struct {
 	downloads  downloadsModel
 	compass    compassModel
 	sources    sourcesModel
+	settings   settingsModel
 	proxy      proxyBadge
 	proxyCheck proxyChecker
 	startup    tea.Cmd // optional one-shot action requested on the command line
@@ -100,6 +102,8 @@ func New(cfg *config.Config, eng *engine.Engine, agg *aggregator.Aggregator, st 
 	if runtime := cfg.ProxyRuntime(); runtime != nil && runtime.Enabled() {
 		a.proxy.state = proxyBadgeUnverified
 	}
+	a.motion.animations = cfg.UI.Motion // Settings › Look › animations
+	a.loadDebridStatus()                // the footer's ☁ RD marker
 	a.results.curated = true
 	a.refreshDownloadItems()
 	return a
@@ -320,6 +324,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case proxyCheckMsg:
 		a.onProxyCheck(msg)
 		return a, nil
+
+	case settingsMsg:
+		return a, msg.applySettings(a)
 	}
 
 	switch a.screen {
@@ -335,6 +342,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.updateSources(msg)
 	case screenHealth:
 		return a.updateHealth(msg)
+	case screenSettings:
+		return a.updateSettings(msg)
 	default:
 		return a.updateDownloads(msg)
 	}
@@ -360,6 +369,8 @@ func (a *App) View() string {
 		return a.viewSources()
 	case screenHealth:
 		return a.viewHealth()
+	case screenSettings:
+		return a.viewSettings()
 	default:
 		return a.viewDownloads()
 	}
@@ -416,13 +427,15 @@ func (a *App) typing() bool {
 	return (a.screen == screenSources && (a.sources.editor != nil || a.sources.catalog != nil)) ||
 		(a.screen == screenSearch && !a.search.menuFocused) ||
 		(a.screen == screenResults && (a.results.filtering || a.results.editSearch)) ||
-		a.downloads.prompt.action != pathActionNone
+		a.downloads.prompt.action != pathActionNone ||
+		(a.screen == screenSettings && a.settingsTyping())
 }
 
 func (a *App) navigationLocked() bool {
 	return (a.screen == screenSources && (a.sources.editor != nil || a.sources.catalog != nil || a.sources.removing != "")) ||
 		(a.screen == screenResults && a.results.pickPanel) || a.screen == screenPreview || (a.screen == screenDownloads &&
-		(a.downloads.prompt.action != pathActionNone || a.downloads.confirmRemove != nil))
+		(a.downloads.prompt.action != pathActionNone || a.downloads.confirmRemove != nil)) ||
+		(a.screen == screenSettings && a.settingsLocked())
 }
 
 func (a *App) focusSearch() tea.Cmd {
@@ -435,6 +448,9 @@ func (a *App) navigate(target screen) tea.Cmd {
 	a.cancelResolve()
 	a.showHelp = false
 	a.search.input.Blur()
+	if a.screen == screenSettings && target != screenSettings {
+		a.leaveSettings()
+	}
 	if target == screenDownloads && a.screen != screenDownloads {
 		a.downloadsFrom = a.screen
 	}
