@@ -206,6 +206,7 @@ type debridItem struct {
 	// automatic restart that the hold it was made for is over.
 	autoRetries int
 	holdGen     int
+	autoPending bool // an automatic restart is due
 }
 
 // SetDebridProvider sets the debrid service new debrid items use (nil turns
@@ -873,6 +874,7 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 	case DebridCloud, DebridReady:
 		if it.paused {
 			s.State = StatePaused
+			s.Retrying = it.autoPending
 			s.Note = it.note
 			if s.Note == "" {
 				s.Note = "paused"

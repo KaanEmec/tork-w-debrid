@@ -410,6 +410,9 @@ func (a *App) tickShouldContinue() bool {
 		return true
 	}
 	for _, s := range a.downloads.snaps {
+		if s.Retrying { // held by a network outage; restarts by itself
+			return true
+		}
 		switch s.State {
 		case engine.StateFetchingMeta, engine.StatePreviewing, engine.StateDownloading, engine.StateSeeding, engine.StateVerifying,
 			engine.StateRemote: // Real-Debrid downloads; the local phase follows by itself

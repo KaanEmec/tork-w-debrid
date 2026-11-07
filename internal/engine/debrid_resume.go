@@ -224,6 +224,7 @@ func (e *Engine) restartDebridLocked(it *debridItem) {
 	it.paused, it.needsLogin = false, false
 	it.note, it.err = "", nil
 	it.holdGen++
+	it.autoPending = false
 	it.readds = 0
 	it.showRemote = true
 	if e.closing {

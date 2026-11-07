@@ -45,6 +45,9 @@ func TestDebridLocalRecoversByItselfAfterNetworkLoss(t *testing.T) {
 		info, _ := eng.DebridItem(h)
 		return info.Paused && strings.Contains(info.Note, "connection lost")
 	})
+	if s, _ := eng.Snapshot(h); s.State != StatePaused || !s.Retrying {
+		t.Fatalf("held row: state %v, Retrying %v; the UI must keep watching it", s.State, s.Retrying)
+	}
 	before := host.served.Load()
 	down.Store(false)
 
@@ -79,4 +82,55 @@ func TestDebridAutoRestartOnlyForNetworkLoss(t *testing.T) {
 	if isNetworkErr(directStatusError{code: http.StatusBadGateway}) {
 		t.Fatal("an HTTP answer is not a network error")
 	}
+}
+
+// The outage outlasts the first automatic restart and takes the service's
+// API down too, as when the whole network is gone: the item keeps trying and
+// ends done, not held.
+func TestDebridLocalLongOutageEndsDone(t *testing.T) {
+	const size = 2 << 20
+	files := []rdFile{{1, "big.bin", testPayload(size, 12)}}
+	host := newRDHost(t, hostFiles(files))
+	host.rate = 1 << 20
+	var down atomic.Bool
+	serve := host.Config.Handler
+	host.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if down.Load() {
+			panic(http.ErrAbortHandler)
+		}
+		serve.ServeHTTP(w, r)
+	})
+	unavailable := &debrid.Error{Provider: "Real-Debrid", Kind: debrid.ErrUnavailable}
+	fake := &fakeDebrid{info: readyTorrent("big.bin", files, rdLinks(1))}
+	toHost := unlockTo(host, files)
+	fake.unlock = func(n int, link string) (debrid.Unlocked, error) {
+		if down.Load() {
+			return debrid.Unlocked{}, unavailable
+		}
+		return toHost(n, link)
+	}
+	eng := newLocalTestEngine(t, fake)
+	debridTuning.autoRetryBase = 50 * time.Millisecond
+	eng.SetDebridSettings(config.DebridConfig{Connections: 4, MaxTotalConnections: 8})
+	dir := t.TempDir()
+	h := startLocal(t, eng, dir)
+
+	awaitCond(t, "a third of the file", 10*time.Second, func() bool { return host.served.Load() > size/3 })
+	down.Store(true)
+	fake.mu.Lock()
+	fake.infoErr = unavailable
+	fake.mu.Unlock()
+	host.CloseClientConnections()
+	time.Sleep(time.Second) // several automatic restarts while still down
+	fake.mu.Lock()
+	fake.infoErr = nil
+	fake.mu.Unlock()
+	down.Store(false)
+
+	awaitHash(t, eng, h, isDone, 20*time.Second)
+	info, _ := eng.DebridItem(h)
+	if info.Paused || info.Phase != DebridDone {
+		t.Fatalf("after the outage: paused=%v phase=%v note=%q", info.Paused, info.Phase, info.Note)
+	}
+	checkFile(t, filepath.Join(dir, "big.bin"), files[0].data)
 }

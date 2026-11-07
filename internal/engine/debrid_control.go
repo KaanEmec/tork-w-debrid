@@ -167,6 +167,7 @@ func (e *Engine) pauseDebrid(h metainfo.Hash, it *debridItem) error {
 	it.paused, it.needsLogin = true, false
 	it.note, it.err = "", nil
 	it.holdGen++ // a pending automatic restart must not undo the pause
+	it.autoPending = false
 	it.samples = ring{}
 	e.stopDebridPollLocked(it)
 	done := it.pollDone

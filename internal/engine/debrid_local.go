@@ -434,6 +434,7 @@ func lostNetwork(err error) bool {
 // it was resumed, paused or removed in the meantime. Caller holds e.mu.
 func (e *Engine) autoRestartDebridLocked(it *debridItem) {
 	it.autoRetries++
+	it.autoPending = true
 	wait := min(debridTuning.autoRetryBase<<min(it.autoRetries-1, 6), max(debridTuning.retryMax, debridTuning.autoRetryBase))
 	it.note = fmt.Sprintf("connection lost - retrying in %s · p retries now", wait.Round(time.Second))
 	gen := it.holdGen
@@ -528,6 +529,7 @@ func (e *Engine) debridLocalSnapshot(s *Snapshot, it *debridItem, now time.Time)
 	switch {
 	case it.paused:
 		s.State = StatePaused
+		s.Retrying = it.autoPending
 		s.Note = it.note
 		if s.Note == "" {
 			s.Note = "paused"
