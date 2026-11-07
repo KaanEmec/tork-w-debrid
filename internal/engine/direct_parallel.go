@@ -15,9 +15,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
-const directManifestVersion = 1
+// directManifestVersion 2 keys the manifest by resume key (roadmap J7.2), so
+// a fresh link for the same file keeps every byte already downloaded.
+// Version 1 manifests, keyed by URL, are still read.
+const directManifestVersion = 2
 
 type byteRange struct {
 	Start int64 `json:"start"`
@@ -27,20 +31,49 @@ type byteRange struct {
 type directManifest struct {
 	Version   int         `json:"version"`
 	URL       string      `json:"url"`
+	ResumeKey string      `json:"resume_key,omitempty"`
 	Total     int64       `json:"total"`
 	Validator string      `json:"validator,omitempty"`
 	Completed []byteRange `json:"completed,omitempty"`
 }
 
+// directIdentity is what a saved manifest must match to be resumed.
+type directIdentity struct {
+	key       string // the resume key, or the URL for ordinary downloads
+	url       string // the URL in use now
+	keyed     bool   // key is a caller-supplied ResumeKey
+	total     int64
+	validator string
+}
+
 type directProtocolError struct{ error }
 
-func (e *Engine) runDirectParallel(ctx context.Context, it *directItem, dest string) (bool, error) {
-	total, validator, ok := e.discoverDirectRanges(ctx, it)
-	if !ok || total < 2*e.directMinChunkSize || (it.checksum.Empty() && validator == "") {
+// directProbe is what the 0-0 range probe learned about the remote file.
+type directProbe struct {
+	total     int64
+	validator string
+	url       string
+}
+
+// runDirectParallel downloads over several connections when the server
+// supports ranges and the file can be identified (checksum, validator, or a
+// known size that the server confirms). It reports false when the caller
+// should fall back to a single connection.
+func (e *Engine) runDirectParallel(ctx context.Context, it *directItem, dest string, member *budgetMember) (bool, error) {
+	probe, ok, err := e.discoverDirectRanges(ctx, it, member)
+	if err != nil {
+		return true, err
+	}
+	if !ok {
 		return false, nil
 	}
+	total, validator := probe.total, probe.validator
 	if it.expectedSize > 0 && total != it.expectedSize {
 		return true, fmt.Errorf("server reported %d bytes, expected %d", total, it.expectedSize)
+	}
+	knownSize := it.expectedSize > 0 && total == it.expectedSize
+	if total < 2*e.directMinChunkSize || (it.checksum.Empty() && validator == "" && !knownSize) {
+		return false, nil
 	}
 	part, meta := dest+".part", dest+".part.meta"
 	if fi, err := os.Lstat(part); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular()) {
@@ -51,18 +84,21 @@ func (e *Engine) runDirectParallel(ctx context.Context, it *directItem, dest str
 	} else if err != nil && !os.IsNotExist(err) {
 		return true, fmt.Errorf("inspect direct-download metadata: %w", err)
 	}
-	manifest, err := loadDirectManifest(meta, it.url, total, validator)
+	id := directIdentity{key: it.key(), url: probe.url, keyed: it.resumeKey != "", total: total, validator: validator}
+	manifest, err := loadDirectManifest(meta, id)
 	if err != nil {
 		_ = os.Remove(meta)
 		_ = os.Remove(part)
-		manifest = directManifest{Version: directManifestVersion, URL: it.url, Total: total, Validator: validator}
+		manifest = directManifest{}
 	}
 	if manifest.Version == 0 {
-		manifest = directManifest{Version: directManifestVersion, URL: it.url, Total: total, Validator: validator}
+		manifest = directManifest{}
 		if fi, statErr := os.Stat(part); statErr == nil && fi.Size() > 0 && fi.Size() < total {
 			manifest.Completed = []byteRange{{Start: 0, End: fi.Size() - 1}}
 		}
 	}
+	manifest.Version, manifest.URL, manifest.ResumeKey = directManifestVersion, probe.url, it.resumeKey
+	manifest.Total, manifest.Validator = total, validator
 	if err := saveDirectManifest(meta, manifest); err != nil {
 		return true, err
 	}
@@ -75,78 +111,81 @@ func (e *Engine) runDirectParallel(ctx context.Context, it *directItem, dest str
 		return true, err
 	}
 
-	scheduler := newDirectRangeScheduler(total, manifest.Completed)
-	completedBytes := rangeBytes(manifest.Completed)
-	e.mu.Lock()
-	it.done, it.length = completedBytes, total
-	e.mu.Unlock()
-
+	run := newSegmentRun(total, e.directMinChunkSize, manifest.Completed, e.directWant(it))
+	run.validator, run.validatorURL = validator, probe.url
+	if it.budget != nil && member != nil {
+		run.budget, run.member = it.budget, member
+	}
 	workCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var workers sync.WaitGroup
-	var manifestMu sync.Mutex
-	var firstErr error
-	var errMu sync.Mutex
-	worker := func() {
-		defer workers.Done()
+	run.cancel = cancel
+	e.mu.Lock()
+	it.done, it.length, it.seg = rangeBytes(manifest.Completed), total, run
+	e.mu.Unlock()
+	defer func() {
+		e.mu.Lock()
+		if it.seg == run {
+			it.seg = nil
+		}
+		e.mu.Unlock()
+	}()
+
+	// The checkpointer saves partly done ranges whenever directTuning.
+	// checkpointBytes of new data arrived or a worker stopped. It snapshots
+	// the ranges before syncing, so the manifest never lists unsynced bytes.
+	var saveMu sync.Mutex
+	checkpoint := func() error {
+		ranges := run.doneRanges()
+		if err := f.Sync(); err != nil {
+			return err
+		}
+		saveMu.Lock()
+		defer saveMu.Unlock()
+		manifest.Completed = ranges
+		return saveDirectManifest(meta, manifest)
+	}
+	checkpointDone := make(chan struct{})
+	go func() {
+		defer close(checkpointDone)
 		for {
-			r, ok := scheduler.claim(e.directMinChunkSize)
-			if !ok {
-				return
-			}
-			if err := e.fetchDirectRange(workCtx, it, f, r, total, validator); err != nil {
-				errMu.Lock()
-				if firstErr == nil {
-					firstErr = err
-					cancel()
+			select {
+			case <-run.kick:
+				if err := checkpoint(); err != nil {
+					run.fail(directFatalError{err})
 				}
-				errMu.Unlock()
-				return
-			}
-			if err := f.Sync(); err != nil {
-				errMu.Lock()
-				if firstErr == nil {
-					firstErr = err
-					cancel()
-				}
-				errMu.Unlock()
-				return
-			}
-			manifestMu.Lock()
-			manifest.Completed = normalizeRanges(append(manifest.Completed, r))
-			err := saveDirectManifest(meta, manifest)
-			manifestMu.Unlock()
-			if err != nil {
-				errMu.Lock()
-				if firstErr == nil {
-					firstErr = err
-					cancel()
-				}
-				errMu.Unlock()
+			case <-workCtx.Done():
 				return
 			}
 		}
-	}
-	count := e.directMaxConnections
-	if !scheduler.hasWork() {
-		count = 0
-	}
-	workers.Add(count)
-	for range count {
-		go worker()
-	}
+	}()
+
+	var workers sync.WaitGroup
+	e.superviseSegments(workCtx, it, run, f, &workers)
 	workers.Wait()
-	if closeErr := f.Close(); firstErr == nil {
-		firstErr = closeErr
+	cancel()
+	<-checkpointDone
+
+	runErr := run.failure()
+	var protocol directProtocolError
+	if errors.As(runErr, &protocol) {
+		f.Close()
+		_ = os.Remove(part)
+		_ = os.Remove(meta)
+		return false, nil
 	}
-	if firstErr != nil {
-		var protocol directProtocolError
-		if errors.As(firstErr, &protocol) {
-			_ = os.Remove(part)
-			_ = os.Remove(meta)
-			return false, nil
-		}
-		return true, firstErr
+	saveErr := checkpoint()
+	closeErr := f.Close()
+	switch {
+	case runErr != nil:
+		return true, runErr
+	case ctx.Err() != nil:
+		return true, ctx.Err()
+	case saveErr != nil:
+		return true, saveErr
+	case closeErr != nil:
+		return true, closeErr
+	case rangeBytes(manifest.Completed) != total:
+		return true, errors.New("segmented download ended with missing bytes")
 	}
 	if err := finalizeParallelDirect(it, part, dest); err != nil {
 		_ = os.Remove(meta)
@@ -158,13 +197,192 @@ func (e *Engine) runDirectParallel(ctx context.Context, it *directItem, dest str
 	_ = os.Remove(meta)
 	e.mu.Lock()
 	it.done, it.length, it.state, it.cancel = total, total, StateDone, nil
+	if it.state == StateDone {
+		it.note = ""
+	}
 	e.mu.Unlock()
 	return true, nil
 }
 
-func (e *Engine) discoverDirectRanges(ctx context.Context, it *directItem) (int64, string, bool) {
+// superviseSegments starts workers while there is work and the connection
+// limits allow, samples speeds, runs the slow-connection check, and returns
+// once every worker has stopped and nothing is left (or the run ended).
+func (e *Engine) superviseSegments(ctx context.Context, it *directItem, run *segmentRun, f *os.File, workers *sync.WaitGroup) {
+	ticker := time.NewTicker(directTuning.tick)
+	defer ticker.Stop()
+	lastHealth := time.Now()
+	for {
+		run.setWant(e.directWant(it), time.Now())
+		for ctx.Err() == nil && run.spawnable() {
+			if run.budget != nil && !run.budget.tryAcquire(run.member) {
+				break
+			}
+			w := run.addWorker()
+			workers.Add(1)
+			go e.segmentWorker(ctx, it, run, w, f, workers)
+		}
+		if ctx.Err() != nil || run.finished() {
+			return
+		}
+		select {
+		case now := <-ticker.C:
+			run.sample(now)
+			if now.Sub(lastHealth) >= directTuning.healthInterval {
+				run.healthCheck(now)
+				lastHealth = now
+			}
+		case <-run.events:
+		case <-ctx.Done():
+		}
+	}
+}
+
+func (e *Engine) segmentWorker(ctx context.Context, it *directItem, run *segmentRun, w *segWorker, f *os.File, workers *sync.WaitGroup) {
+	defer workers.Done()
+	for {
+		_, wait, ok := run.claim(w, time.Now())
+		if !ok {
+			return
+		}
+		if wait > 0 {
+			if !sleepCtx(ctx, min(wait, directTuning.tick)) {
+				run.exit(w)
+				return
+			}
+			continue
+		}
+		gen, err := e.fetchSegment(ctx, it, run, w, f)
+		if err == nil {
+			run.release(w, false, 0, time.Now())
+			continue
+		}
+		if ctx.Err() != nil {
+			run.release(w, false, 0, time.Now())
+			run.exit(w)
+			return
+		}
+		if !e.recoverSegment(ctx, it, run, w, gen, err) {
+			run.exit(w)
+			return
+		}
+		signal(run.kick)
+	}
+}
+
+// recoverSegment handles one failed attempt (roadmap J7.3). It reports false
+// when the whole transfer has failed.
+func (e *Engine) recoverSegment(ctx context.Context, it *directItem, run *segmentRun, w *segWorker, gen int, err error) bool {
+	now := time.Now()
+	kind := classifyDirectErr(err)
+	switch kind {
+	case errKindRestart:
+		run.release(w, false, 0, now)
+		return true
+	case errKindProtocol, errKindFatal:
+		run.release(w, false, 0, now)
+		run.fail(err)
+		return false
+	case errKindExpired:
+		if e.directCanRefresh(it) {
+			run.release(w, false, 0, now)
+			if rerr := e.refreshDirectURL(ctx, it, gen); rerr != nil {
+				if ctx.Err() == nil {
+					run.fail(directFatalError{rerr})
+				}
+				return false
+			}
+			return true
+		}
+	}
+	var minDelay time.Duration
+	var status directStatusError
+	if kind == errKindBusy && errors.As(err, &status) {
+		minDelay = status.retryAfter
+		e.setDirectNote(it, busyNote(run.busy(status.retryAfter, now)))
+	}
+	tries := run.release(w, true, minDelay, now)
+	if tries >= directTuning.maxTries {
+		run.fail(fmt.Errorf("a segment failed %d times - %s", tries, lastErrPart(err)))
+		return false
+	}
+	if run.streak() >= 2*directTuning.maxTries {
+		run.fail(fmt.Errorf("every connection keeps failing - %s", lastErrPart(err)))
+		return false
+	}
+	if kind != errKindBusy {
+		e.setDirectNote(it, fmt.Sprintf("reconnecting (%d/%d)", tries+1, directTuning.maxTries))
+	}
+	return true
+}
+
+func busyNote(connections int) string {
+	if connections == 1 {
+		return "server busy, using 1 connection"
+	}
+	return fmt.Sprintf("server busy, using %d connections", connections)
+}
+
+// lastErrPart is the innermost part of an error message, without the
+// "op url: " prefixes net/http adds.
+func lastErrPart(err error) string {
+	s := err.Error()
+	if i := strings.LastIndex(s, ": "); i >= 0 && i+2 < len(s) {
+		s = s[i+2:]
+	}
+	return s
+}
+
+// discoverDirectRanges probes for range support. A link that has expired is
+// refreshed first, and a keyed (debrid) download retries a busy or failing
+// probe rather than dropping to one connection.
+func (e *Engine) discoverDirectRanges(ctx context.Context, it *directItem, member *budgetMember) (directProbe, bool, error) {
+	if it.budget != nil && member != nil {
+		if err := it.budget.acquire(ctx, member); err != nil {
+			return directProbe{}, false, err
+		}
+		defer it.budget.release(member)
+	}
+	for tries := 1; ; tries++ {
+		link, gen, err := e.directURL(ctx, it)
+		if err != nil {
+			return directProbe{}, false, err
+		}
+		probe, err := e.probeDirectRanges(ctx, it, link)
+		if err == nil {
+			return probe, true, nil
+		}
+		if ctx.Err() != nil {
+			return directProbe{}, false, ctx.Err()
+		}
+		var status directStatusError
+		switch classifyDirectErr(err) {
+		case errKindExpired:
+			if e.directCanRefresh(it) {
+				if rerr := e.refreshDirectURL(ctx, it, gen); rerr != nil {
+					return directProbe{}, false, rerr
+				}
+				continue
+			}
+		case errKindBusy, errKindRetry:
+			if it.resumeKey != "" && tries < directTuning.maxTries {
+				delay := directBackoff(tries)
+				if errors.As(err, &status) {
+					delay = max(delay, status.retryAfter)
+				}
+				e.setDirectNote(it, fmt.Sprintf("reconnecting (%d/%d)", tries+1, directTuning.maxTries))
+				if !sleepCtx(ctx, delay) {
+					return directProbe{}, false, ctx.Err()
+				}
+				continue
+			}
+		}
+		return directProbe{}, false, nil
+	}
+}
+
+func (e *Engine) probeDirectRanges(ctx context.Context, it *directItem, link string) (directProbe, error) {
 	validator := ""
-	head, err := http.NewRequestWithContext(ctx, http.MethodHead, it.url, nil)
+	head, err := http.NewRequestWithContext(ctx, http.MethodHead, link, nil)
 	if err == nil {
 		head.Header.Set("User-Agent", directUserAgent)
 		head.Header.Set("Accept-Encoding", "identity")
@@ -173,86 +391,122 @@ func (e *Engine) discoverDirectRanges(ctx context.Context, it *directItem) (int6
 			resp.Body.Close()
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, it.url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
-		return 0, "", false
+		return directProbe{}, directFatalError{err}
 	}
 	req.Header.Set("User-Agent", directUserAgent)
 	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Range", "bytes=0-0")
 	resp, err := e.doDirectRequest(req, it)
 	if err != nil {
-		return 0, "", false
+		return directProbe{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusPartialContent {
-		return 0, "", false
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+	case http.StatusOK:
+		return directProbe{}, directProtocolError{errors.New("server ignores range requests")}
+	default:
+		return directProbe{}, newDirectStatusError(resp)
 	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64))
 	start, end, total, ok := parseContentRange(resp.Header.Get("Content-Range"))
 	if !ok || start != 0 || end != 0 || total <= 0 {
-		return 0, "", false
+		return directProbe{}, directProtocolError{errors.New("unusable Content-Range in probe")}
 	}
 	if got := responseValidator(resp); got != "" {
 		if validator != "" && got != validator {
-			return 0, "", false
+			return directProbe{}, directProtocolError{errors.New("validators disagree")}
 		}
 		validator = got
 	}
-	return total, validator, true
+	return directProbe{total: total, validator: validator, url: link}, nil
 }
 
-func (e *Engine) fetchDirectRange(ctx context.Context, it *directItem, f *os.File, r byteRange, total int64, validator string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, it.url, nil)
+// fetchSegment streams w's range into the file until the range is done, its
+// end moves below the data, or the attempt fails. It returns the URL
+// generation it used, for refreshDirectURL.
+func (e *Engine) fetchSegment(ctx context.Context, it *directItem, run *segmentRun, w *segWorker, f *os.File) (int, error) {
+	link, gen, err := e.directURL(ctx, it)
 	if err != nil {
-		return err
+		return gen, err
+	}
+	start, end := run.attempt(w)
+	if start > end {
+		return gen, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	if err != nil {
+		return gen, directFatalError{err}
 	}
 	req.Header.Set("User-Agent", directUserAgent)
 	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", r.Start, r.End))
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	validator := run.validatorFor(link)
 	if validator != "" {
 		req.Header.Set("If-Range", validator)
 	}
 	resp, err := e.doDirectRequest(req, it)
 	if err != nil {
-		return err
+		return gen, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusPartialContent {
-		return directProtocolError{fmt.Errorf("range request returned %d", resp.StatusCode)}
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+	case http.StatusOK:
+		return gen, directProtocolError{fmt.Errorf("range request returned %d", resp.StatusCode)}
+	default:
+		return gen, newDirectStatusError(resp)
 	}
-	start, end, gotTotal, ok := parseContentRange(resp.Header.Get("Content-Range"))
-	if !ok || start != r.Start || end != r.End || gotTotal != total {
-		return directProtocolError{errors.New("range response did not match request")}
+	gotStart, gotEnd, gotTotal, ok := parseContentRange(resp.Header.Get("Content-Range"))
+	if !ok || gotStart != start || gotEnd != end || gotTotal != run.total {
+		return gen, directProtocolError{errors.New("range response did not match request")}
 	}
 	if got := responseValidator(resp); validator != "" && got != "" && got != validator {
-		return directProtocolError{errors.New("remote file changed during download")}
+		return gen, directProtocolError{errors.New("remote file changed during download")}
 	}
-	remaining, offset := r.End-r.Start+1, r.Start
-	buf := make([]byte, 128<<10)
-	for remaining > 0 {
-		n, readErr := resp.Body.Read(buf[:min(int64(len(buf)), remaining)])
+	for {
+		n, readErr := resp.Body.Read(w.buf)
 		if n > 0 {
-			if _, err := f.WriteAt(buf[:n], offset); err != nil {
-				return err
+			off, k, restart := run.reserve(w, int64(n))
+			if restart {
+				return gen, errRestartSegment
 			}
-			offset += int64(n)
-			remaining -= int64(n)
+			if k == 0 {
+				return gen, nil // the end moved below this data: another worker owns it
+			}
+			if _, err := f.WriteAt(w.buf[:k], off); err != nil {
+				run.unreserve(w)
+				return gen, directFatalError{err}
+			}
+			done, checkpoint, note, clear := run.commit(w, k)
 			e.mu.Lock()
-			it.done += int64(n)
+			it.done += k
+			if clear && it.state == StateDownloading {
+				it.note = note
+			}
 			e.mu.Unlock()
+			if checkpoint {
+				signal(run.kick)
+			}
+			if done {
+				if off+k == end+1 && k == int64(n) {
+					var extra [1]byte
+					if m, err := resp.Body.Read(extra[:]); m != 0 || (err != nil && err != io.EOF) {
+						return gen, directProtocolError{errors.New("range response exceeded requested length")}
+					}
+				}
+				return gen, nil
+			}
 		}
 		if readErr != nil {
-			if readErr == io.EOF && remaining == 0 {
-				break
+			if readErr == io.EOF {
+				return gen, io.ErrUnexpectedEOF
 			}
-			return readErr
+			return gen, readErr
 		}
 	}
-	var extra [1]byte
-	if n, err := resp.Body.Read(extra[:]); n != 0 || (err != nil && err != io.EOF) {
-		return directProtocolError{errors.New("range response exceeded requested length")}
-	}
-	return nil
 }
 
 func finalizeParallelDirect(it *directItem, part, dest string) error {
@@ -305,7 +559,7 @@ func responseValidator(resp *http.Response) string {
 	return strings.TrimSpace(resp.Header.Get("Last-Modified"))
 }
 
-func loadDirectManifest(path, rawURL string, total int64, validator string) (directManifest, error) {
+func loadDirectManifest(path string, id directIdentity) (directManifest, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return directManifest{}, nil
@@ -317,7 +571,7 @@ func loadDirectManifest(path, rawURL string, total int64, validator string) (dir
 	if err := json.Unmarshal(data, &m); err != nil {
 		return directManifest{}, err
 	}
-	if m.Version != directManifestVersion || m.URL != rawURL || m.Total != total || m.Validator != validator {
+	if !m.matches(id) {
 		return directManifest{}, errors.New("stale direct manifest")
 	}
 	normal := normalizeRanges(m.Completed)
@@ -325,11 +579,64 @@ func loadDirectManifest(path, rawURL string, total int64, validator string) (dir
 		return directManifest{}, errors.New("invalid direct manifest ranges")
 	}
 	for i, r := range normal {
-		if r.Start < 0 || r.End < r.Start || r.End >= total || r != m.Completed[i] {
+		if r.Start < 0 || r.End < r.Start || r.End >= id.total || r != m.Completed[i] {
 			return directManifest{}, errors.New("invalid direct manifest range")
 		}
 	}
 	return m, nil
+}
+
+// matches reports whether a saved manifest describes the same remote file.
+// A changed URL alone never disqualifies a keyed download: only the total
+// size, or validators observed on the same URL, can.
+func (m directManifest) matches(id directIdentity) bool {
+	if m.Total != id.total {
+		return false
+	}
+	switch m.Version {
+	case 1:
+		return m.URL == id.url && m.Validator == id.validator
+	case directManifestVersion:
+		key := m.ResumeKey
+		if key == "" {
+			key = m.URL
+		}
+		if key != id.key {
+			return false
+		}
+		if id.keyed && m.URL != id.url {
+			return true // validators from different links cannot be compared
+		}
+		return m.Validator == id.validator
+	}
+	return false
+}
+
+// readDirectManifestPrefix returns how many leading bytes of the .part file a
+// saved manifest for this item vouches for, and whether the manifest belongs
+// to it. The single-connection path uses it to resume after a segmented run.
+func readDirectManifestPrefix(path string, it *directItem) (int64, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	var m directManifest
+	if json.Unmarshal(data, &m) != nil {
+		return 0, false
+	}
+	key := m.ResumeKey
+	if key == "" {
+		key = m.URL
+	}
+	if (m.Version == 1 && m.URL != it.url) || (m.Version == directManifestVersion && key != it.key()) ||
+		(m.Version != 1 && m.Version != directManifestVersion) {
+		return 0, false
+	}
+	completed := normalizeRanges(m.Completed)
+	if len(completed) == 0 || completed[0].Start != 0 || completed[0].End >= m.Total {
+		return 0, true
+	}
+	return completed[0].End + 1, true
 }
 
 func saveDirectManifest(path string, m directManifest) error {
@@ -369,59 +676,6 @@ func normalizeRanges(in []byteRange) []byteRange {
 		}
 	}
 	return merged
-}
-
-type directRangeScheduler struct {
-	mu      sync.Mutex
-	pending []byteRange
-}
-
-func newDirectRangeScheduler(total int64, complete []byteRange) *directRangeScheduler {
-	complete = normalizeRanges(complete)
-	var pending []byteRange
-	start := int64(0)
-	for _, done := range complete {
-		if start < done.Start {
-			pending = append(pending, byteRange{Start: start, End: done.Start - 1})
-		}
-		start = max(start, done.End+1)
-	}
-	if start < total {
-		pending = append(pending, byteRange{Start: start, End: total - 1})
-	}
-	return &directRangeScheduler{pending: pending}
-}
-
-func (s *directRangeScheduler) hasWork() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.pending) > 0
-}
-
-// claim dynamically splits the largest pending interval. An idle worker takes
-// the upper half while the lower half remains available for another worker;
-// once an interval reaches the minimum size it is claimed whole.
-func (s *directRangeScheduler) claim(minChunk int64) (byteRange, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.pending) == 0 {
-		return byteRange{}, false
-	}
-	largest := 0
-	for i := 1; i < len(s.pending); i++ {
-		if s.pending[i].End-s.pending[i].Start > s.pending[largest].End-s.pending[largest].Start {
-			largest = i
-		}
-	}
-	r := s.pending[largest]
-	length := r.End - r.Start + 1
-	if length >= 2*minChunk {
-		split := r.Start + length/2
-		s.pending[largest].End = split - 1
-		return byteRange{Start: split, End: r.End}, true
-	}
-	s.pending = slices.Delete(s.pending, largest, largest+1)
-	return r, true
 }
 
 func missingDirectRanges(total int64, complete []byteRange, chunk int64) []byteRange {

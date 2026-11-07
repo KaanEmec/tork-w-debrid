@@ -44,6 +44,24 @@ type directItem struct {
 	runDone      chan struct{}      // closed after the current transfer releases its files
 	verifyCancel context.CancelFunc
 	samples      ring
+
+	resumeKey   string            // empty: the URL is the key
+	refreshURL  URLRefresher      // nil for ordinary downloads
+	connections int               // 0 = e.directMaxConnections
+	budget      *ConnectionBudget // shared connection cap, or nil
+	urlGen      int               // bumped by every link refresh
+	refreshes   int               // link refreshes in this run
+	refreshing  chan struct{}     // non-nil while a refresh is in flight
+	refreshErr  error             // result of the last refresh
+	seg         *segmentRun       // live scheduler of a segmented run, or nil
+}
+
+// key identifies the download: its resume key, or else its URL.
+func (it *directItem) key() string {
+	if it.resumeKey != "" {
+		return it.resumeKey
+	}
+	return it.url
 }
 
 // directClient has no overall timeout - an ISO download runs for minutes to
@@ -102,6 +120,9 @@ func (e *Engine) AddDirectDownloadWithOptions(spec DirectDownload, opts AddOptio
 	if spec.ExpectedSize < 0 {
 		return metainfo.Hash{}, errors.New("direct download size cannot be negative")
 	}
+	if spec.Connections < 0 || spec.Connections > MaxDownloadConnections {
+		return metainfo.Hash{}, fmt.Errorf("direct download connections must be between 0 and %d", MaxDownloadConnections)
+	}
 	if spec.Name == "" {
 		spec.Name = path.Base(strings.TrimRight(parsed.Path, "/"))
 	}
@@ -136,7 +157,7 @@ func (e *Engine) AddDirectDownloadWithOptions(spec DirectDownload, opts AddOptio
 			}
 		}
 	}
-	h := directHash(spec.URL)
+	h := directHash(spec.key())
 	lockedOrigin := ""
 	if spec.LockToOrigin {
 		lockedOrigin = directURLOrigin(parsed)
@@ -151,6 +172,11 @@ func (e *Engine) AddDirectDownloadWithOptions(spec DirectDownload, opts AddOptio
 		if it.state == StatePaused {
 			it.downloadDir = opts.DownloadDir
 			it.dataPath = dataPath
+			if it.resumeKey != "" {
+				// a keyed download may come back with a fresh link
+				it.url, it.refreshURL = spec.URL, spec.RefreshURL
+				it.urlGen++
+			}
 			e.startDirectLocked(it)
 		}
 		return h, nil
@@ -160,6 +186,8 @@ func (e *Engine) AddDirectDownloadWithOptions(spec DirectDownload, opts AddOptio
 		expectedSize: spec.ExpectedSize,
 		downloadDir:  opts.DownloadDir, dataPath: dataPath,
 		length: spec.ExpectedSize, state: StateDownloading,
+		resumeKey: spec.ResumeKey, refreshURL: spec.RefreshURL,
+		connections: spec.Connections, budget: spec.Budget,
 	}
 	it.lockedOrigin = lockedOrigin
 	e.direct[h] = it
@@ -180,6 +208,7 @@ func (e *Engine) startDirectLocked(it *directItem) {
 	it.state = StateDownloading
 	it.note = ""
 	it.samples = ring{}
+	it.refreshes, it.refreshErr = 0, nil
 	e.dwg.Add(1)
 	go func() {
 		defer e.dwg.Done()
@@ -228,8 +257,13 @@ func (e *Engine) runDirect(ctx context.Context, it *directItem) {
 		return
 	}
 
-	if e.cfg.Direct.EnableChunking && e.directMaxConnections >= 2 {
-		handled, err := e.runDirectParallel(ctx, it, dest)
+	var member *budgetMember
+	if it.budget != nil {
+		member = it.budget.join()
+		defer it.budget.leave(member)
+	}
+	if e.cfg.Direct.EnableChunking && (e.directWant(it) >= 2 || it.resumeKey != "") {
+		handled, err := e.runDirectParallel(ctx, it, dest, member)
 		if handled {
 			if err != nil {
 				e.failDirect(ctx, it, err)
@@ -237,7 +271,22 @@ func (e *Engine) runDirect(ctx context.Context, it *directItem) {
 			return
 		}
 	}
+	// A segmented run leaves a preallocated .part: keep only the prefix its
+	// manifest vouches for, so the single-connection resume stays correct.
+	if prefix, ok := readDirectManifestPrefix(part+".meta", it); ok {
+		if fi, err := os.Stat(part); err == nil && fi.Size() > prefix {
+			_ = os.Truncate(part, prefix)
+		}
+	} else if _, err := os.Stat(part + ".meta"); err == nil {
+		_ = os.Remove(part)
+	}
 	_ = os.Remove(part + ".meta")
+	if it.budget != nil {
+		if err := it.budget.acquire(ctx, member); err != nil {
+			return
+		}
+		defer it.budget.release(member)
+	}
 
 	hasher, _ := it.checksum.newHash()
 	offset := hashExistingPart(part, hasher)
@@ -352,7 +401,11 @@ func (e *Engine) copyDirect(it *directItem, f *os.File, body io.Reader, hasher h
 }
 
 func (e *Engine) openDirect(ctx context.Context, it *directItem, offset int64) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, it.url, nil)
+	link, _, err := e.directURL(ctx, it)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +465,7 @@ func (e *Engine) doDirectRequest(req *http.Request, it *directItem) (*http.Respo
 	baseCheck := client.CheckRedirect
 	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
 		if next.URL.User != nil || directURLOrigin(next.URL) != it.lockedOrigin {
-			return errors.New("refusing a download redirect outside the trusted origin")
+			return errUntrustedRedirect
 		}
 		if baseCheck != nil {
 			return baseCheck(next, via)
