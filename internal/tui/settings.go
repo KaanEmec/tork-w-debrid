@@ -104,6 +104,7 @@ type settingsModel struct {
 	overlay settingOverlay
 	confirm *settingConfirm
 
+	rd     rdSettings     // Real-Debrid section (settings_debrid.go)
 	folder folderSettings // Downloads section (settings_downloads.go)
 }
 
@@ -326,6 +327,9 @@ func (a *App) settingsContext() string {
 func (a *App) viewSettings() string {
 	width := a.contentWidth()
 	help := a.keyStrip(a.helpBudget(width))
+	if f, ok := a.settings.overlay.(interface{ footer(*App) string }); ok {
+		help = f.footer(a)
+	}
 	if o := a.settings.overlay; o != nil && !o.dialog() {
 		return a.chrome(a.settingsContext(), o.view(a, width, a.bodyHeight()), help)
 	}

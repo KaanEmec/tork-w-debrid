@@ -102,6 +102,7 @@ func New(cfg *config.Config, eng *engine.Engine, agg *aggregator.Aggregator, st 
 		a.proxy.state = proxyBadgeUnverified
 	}
 	a.motion.animations = cfg.UI.Motion // Settings › Look › animations
+	a.loadDebridStatus()                // the footer's ☁ RD marker
 	a.results.curated = true
 	a.refreshDownloadItems()
 	return a
