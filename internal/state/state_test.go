@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -112,5 +113,53 @@ func TestPinDownloadDirFillsOnlyMissingFolders(t *testing.T) {
 	}
 	if s.PinDownloadDir("") != 0 {
 		t.Fatal("empty dir pinned entries")
+	}
+}
+
+// Debrid fields (roadmap J3.4) round-trip; a file from before them loads
+// unchanged; upstream tork, which lacks them, still reads a fork-written file.
+func TestDebridFieldsAreCompatible(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	old := `{"entries":[{"magnet":"magnet:?xt=urn:btih:abc","name":"old","added_at":"2026-01-02T03:04:05Z","paused":false,"done":false,"excluded":[1]}]}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil || len(s.Entries) != 1 {
+		t.Fatalf("old file: %v, %+v", err, s)
+	}
+	e := s.Entries[0]
+	if e.Name != "old" || e.Via != "" || e.RemoteID != "" || e.Phase != "" || e.RemoteFiles != nil || e.TorrentData != nil || len(e.Excluded) != 1 {
+		t.Fatalf("old entry = %+v", e)
+	}
+
+	s.Upsert(Entry{
+		Magnet: "magnet:?xt=urn:btih:def", Name: "debrid", Via: "realdebrid",
+		RemoteID: "RID7", RemoteFiles: []int{2, 5}, Phase: "local", TorrentData: []byte("d4:infod...e"),
+	})
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	back, _ := Load(path)
+	d := back.Find("magnet:?xt=urn:btih:def")
+	if d == nil || d.Via != "realdebrid" || d.RemoteID != "RID7" || d.Phase != "local" ||
+		len(d.RemoteFiles) != 2 || string(d.TorrentData) != "d4:infod...e" {
+		t.Fatalf("debrid entry = %+v", d)
+	}
+
+	// upstream's Entry: the same struct without the debrid fields
+	type upstreamEntry struct {
+		Magnet   string `json:"magnet"`
+		Name     string `json:"name"`
+		Paused   bool   `json:"paused"`
+		Done     bool   `json:"done"`
+		Excluded []int  `json:"excluded,omitempty"`
+	}
+	var upstream struct {
+		Entries []upstreamEntry `json:"entries"`
+	}
+	data, _ := os.ReadFile(path)
+	if err := json.Unmarshal(data, &upstream); err != nil || len(upstream.Entries) != 2 || upstream.Entries[1].Name != "debrid" {
+		t.Fatalf("upstream read: %v, %+v", err, upstream)
 	}
 }

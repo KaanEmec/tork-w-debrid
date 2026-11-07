@@ -191,6 +191,9 @@ func (it *debridItem) providerName() string {
 			return name
 		}
 	}
+	if it.via == config.DebridProviderRealDebrid {
+		return "Real-Debrid"
+	}
 	return "the debrid service"
 }
 
@@ -411,6 +414,7 @@ func (e *Engine) holdDebridLocked(ctx context.Context, it *debridItem, err error
 		return
 	}
 	it.paused, it.cancel = true, nil
+	it.needsLogin = needsDebridLogin(err) // SetDebridProvider continues it
 	it.err = err
 	it.note = it.holdNote(err, fallback)
 }
@@ -419,7 +423,7 @@ func (e *Engine) holdDebridLocked(ctx context.Context, it *debridItem, err error
 func (it *debridItem) holdNote(err error, fallback string) string {
 	var de *debrid.Error
 	switch {
-	case errors.Is(err, debrid.ErrNotLinked), errors.Is(err, debrid.ErrUnauthorized):
+	case needsDebridLogin(err):
 		return "☁ " + it.providerName() + " account needs login"
 	case errors.Is(err, debrid.ErrNotFound):
 		return "☁ " + it.short + " link no longer exists - press p to retry"
@@ -482,6 +486,9 @@ func (e *Engine) debridLocalSnapshot(s *Snapshot, it *debridItem, now time.Time)
 	}
 	if len(it.children) == 0 {
 		length = it.info.Bytes
+		if length == 0 {
+			length = it.savedLength
+		}
 	}
 	// a fresh run starts each file at 0 until it has read its .part file:
 	// never show less than was shown before

@@ -842,6 +842,11 @@ func (a *App) activateDownload(it downloadItem) (metainfo.Hash, error) {
 	if a.st != nil {
 		if e := a.st.Find(it.Magnet); e != nil {
 			opts.Excluded = e.Excluded
+			if e.Via != "" { // a debrid download (J3.4)
+				entry := *e
+				entry.DownloadDir = downloadDir
+				return a.eng.ResumeDebrid(entry)
+			}
 		}
 	}
 	if strings.HasPrefix(it.Magnet, "http://") || strings.HasPrefix(it.Magnet, "https://") {

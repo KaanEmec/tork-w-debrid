@@ -600,6 +600,9 @@ func applySnapshotToEntry(e *state.Entry, s engine.Snapshot) (meta, progress boo
 		e.Length = s.Length
 		progress = true
 	}
+	if engine.ApplyDebridState(e, s) { // debrid phase, remote ID and files (J3.4)
+		meta = true
+	}
 	return meta, progress
 }
 

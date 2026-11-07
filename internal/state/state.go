@@ -31,6 +31,18 @@ type Entry struct {
 	Length            int64      `json:"length,omitempty"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty"`
 	Excluded          []int      `json:"excluded,omitempty"`
+
+	// Debrid downloads (roadmap J3.4). Magnet stays the real magnet (or the
+	// infohash magnet of a .torrent). Unlocked URLs and tokens are never
+	// saved: they expire and are tied to one IP. Upstream tork ignores these
+	// fields.
+	Via         string `json:"via,omitempty"`          // "" or "realdebrid"
+	RemoteID    string `json:"remote_id,omitempty"`    // the service's torrent ID
+	RemoteFiles []int  `json:"remote_files,omitempty"` // chosen remote file IDs (none = all)
+	Phase       string `json:"phase,omitempty"`        // "cloud" or "local"
+	// TorrentData is the .torrent the download was started from when there
+	// was no magnet, so it can be added to the service again.
+	TorrentData []byte `json:"torrent_data,omitempty"`
 }
 
 type State struct {

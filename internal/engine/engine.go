@@ -115,6 +115,9 @@ type Snapshot struct {
 	Via string
 	// Remote is the cloud download's progress for debrid items, else nil.
 	Remote *RemoteProgress
+	// Debrid is what state.json keeps of a debrid item (see
+	// ApplyDebridState), else nil.
+	Debrid *DebridState
 }
 
 type MetadataSource string
@@ -937,10 +940,14 @@ func (e *Engine) Pause(h metainfo.Hash) error {
 	return nil
 }
 
-// Resume re-adds a paused torrent, or restarts a paused direct download from
-// its .part file.
+// Resume re-adds a paused torrent, restarts a paused direct download from
+// its .part file, or continues a paused or held debrid download.
 func (e *Engine) Resume(h metainfo.Hash) error {
 	e.mu.Lock()
+	if di, ok := e.debrid[h]; ok {
+		e.mu.Unlock()
+		return e.resumeDebrid(h, di, "")
+	}
 	if d, ok := e.direct[h]; ok {
 		if d.state == StateVerifying {
 			e.mu.Unlock()

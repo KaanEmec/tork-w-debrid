@@ -33,6 +33,8 @@ type fakeDebrid struct {
 	unlock      func(n int, link string) (debrid.Unlocked, error)
 	unlockCalls atomic.Int32
 	deleteErr   error
+	gone        map[string]bool // remote IDs Info answers ErrNotFound for
+	infoErr     error           // when set, every Info call fails with it
 
 	infoCalls atomic.Int32
 	adds      []string // magnets, or "torrent" for AddTorrentFile
@@ -70,7 +72,14 @@ func (f *fakeDebrid) Info(_ context.Context, id string) (debrid.RemoteInfo, erro
 	f.mu.Lock()
 	selected := f.selected
 	fn := f.info
+	gone, infoErr := f.gone[id], f.infoErr
 	f.mu.Unlock()
+	if infoErr != nil {
+		return debrid.RemoteInfo{}, infoErr
+	}
+	if gone {
+		return debrid.RemoteInfo{}, &debrid.Error{Provider: "Real-Debrid", Op: "torrents/info", HTTPStatus: 404, Kind: debrid.ErrNotFound}
+	}
 	info, err := fn(n, selected)
 	info.ID = id
 	return info, err
