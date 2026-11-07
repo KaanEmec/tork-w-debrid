@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -83,4 +85,83 @@ func (a *App) debridNotices() tea.Cmd {
 		}
 	}
 	return cmd
+}
+
+// Other ways to start a download (roadmap J4.5). `D` in the results ("download
+// now, skipping the preview") and `preview_before_download: false` both end
+// in launchCmd with preview off. With Real-Debrid on, they go through it
+// with every file chosen, and the same ready check follows. Pasted magnets,
+// infohashes, .torrent files and URLs, on the home screen or the command
+// line, already open the debrid preview. The ISO shelf (HTTPS already) and
+// autopilot (torrent-only in v0.2.0) are left as they are on purpose.
+
+// debridStartedMsg reports a download started without the preview.
+type debridStartedMsg struct {
+	hash metainfo.Hash
+	name string
+	err  error
+}
+
+// launchDebridDownload starts magnet through Real-Debrid with every file,
+// or reports false when downloads don't go through Real-Debrid. It never
+// touches the swarm: when the account can't be used right now it says so
+// instead of quietly falling back to a torrent.
+func (a *App) launchDebridDownload(magnet, name string) (tea.Cmd, bool) {
+	on, problem := a.debridPreviewRoute()
+	if !on {
+		return nil, false
+	}
+	if problem != "" {
+		return a.showError(problem), true
+	}
+	a.ensureDebridProvider()
+	a.pendingAdds++
+	eng := a.eng
+	dir := a.cfg.DownloadDir
+	return func() (msg tea.Msg) {
+		defer guard(&msg, func(r any) tea.Msg {
+			return debridStartedMsg{name: name, err: fmt.Errorf("add panicked: %v", r)}
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), debridAddTimeout)
+		defer cancel()
+		h, owned, err := addDebridMagnet(ctx, eng, magnet)
+		if err != nil {
+			return debridStartedMsg{hash: h, name: name, err: err}
+		}
+		if err := eng.StartDebrid(h, nil, engine.DebridOptions{DownloadDir: dir}); err != nil {
+			if owned {
+				eng.CancelDebridPreview(h)
+			}
+			return debridStartedMsg{hash: h, name: name, err: err}
+		}
+		return debridStartedMsg{hash: h, name: name}
+	}, true
+}
+
+// addDebridMagnet sends a magnet to Real-Debrid, as the cached .torrent
+// when the metadata cache has it (the service then knows the files at once).
+func addDebridMagnet(ctx context.Context, eng *engine.Engine, magnet string) (metainfo.Hash, bool, error) {
+	mag, err := metainfo.ParseMagnetUri(magnet)
+	if err != nil {
+		return metainfo.Hash{}, false, err
+	}
+	data, ok := eng.CachedTorrent(mag.InfoHash)
+	if !ok {
+		return eng.AddDebridForPreview(ctx, magnet)
+	}
+	if h, _, _, err := torrentFileList(data); err != nil || h != mag.InfoHash {
+		return eng.AddDebridForPreview(ctx, magnet) // a bad cache entry
+	}
+	h, _, _, owned, err := eng.AddDebridTorrentForPreview(ctx, data)
+	return h, owned, err
+}
+
+func (a *App) onDebridStarted(msg debridStartedMsg) tea.Cmd {
+	if a.pendingAdds > 0 {
+		a.pendingAdds--
+	}
+	if msg.err != nil {
+		return a.showError("add failed: " + debridProblem(msg.err))
+	}
+	return a.recordDebridStart(msg.hash, msg.name)
 }

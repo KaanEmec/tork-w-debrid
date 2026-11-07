@@ -155,9 +155,12 @@ Usage:
   torkwd --version
 
 Commands:
-  autopilot   search, explain the best choices, then queue them
+  autopilot   search, explain the best choices, then queue them as
+              torrents (autopilot never uses Real-Debrid)
   debrid      link (login), check (status) or unlink (logout) a
               Real-Debrid account; on/off switches downloads through it
+              (every download except autopilot and the Linux ISO shelf,
+              which already downloads over HTTPS)
   doctor      read-only config, disk, state, and provider diagnostic
   intro       play the Tork-w-Debrid intro again (any key stops it)
   proxy       configure or inspect strict SOCKS5 routing
