@@ -106,3 +106,8 @@ func pathWithin(path, base string) bool {
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
 }
+
+// OSDefaultDownloadDir is the folder a fresh config would use: the OS
+// Downloads folder with a tork subfolder. Settings offers it as a quick pick
+// and as the target of "reset".
+func OSDefaultDownloadDir() string { return defaultDownloadDir() }

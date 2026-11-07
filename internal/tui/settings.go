@@ -103,6 +103,8 @@ type settingsModel struct {
 	offset  int // first visible body line
 	overlay settingOverlay
 	confirm *settingConfirm
+
+	folder folderSettings // Downloads section (settings_downloads.go)
 }
 
 // settingsMsg is a message the settings code handles wherever the user is,
