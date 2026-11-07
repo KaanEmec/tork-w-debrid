@@ -116,6 +116,16 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "debrid" {
+		code, err := runDebrid(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tork:", err)
+		}
+		if code != 0 {
+			os.Exit(code)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "tork:", err)
 		os.Exit(1)
@@ -129,14 +139,17 @@ Usage:
   torkwd [--evil] [-d DIR] [MAGNET | INFOHASH | TORRENT_URL | TORRENT_FILE]
   torkwd [--evil] [-d DIR] --torrent-url URL
   torkwd autopilot [--dry-run] [--headless] [--yes] [--evil] [-n N] [-d DIR] "query"
-  torkwd doctor [--record] [--engine] [--proxy-check] [-d DIR]
+  torkwd doctor [--record] [--engine] [--proxy-check] [--debrid-check] [-d DIR]
   torkwd proxy tor|set [SOCKS5_URL]|off|status
+  torkwd debrid login|status|logout [-y]|on|off
   torkwd status | stop
   torkwd update [--check] [--force]
   torkwd --version
 
 Commands:
   autopilot   search, explain the best choices, then queue them
+  debrid      link (login), check (status) or unlink (logout) a
+              Real-Debrid account; on/off switches downloads through it
   doctor      read-only config, disk, state, and provider diagnostic
   proxy       configure or inspect strict SOCKS5 routing
   status      show the background transfer session (macOS/Linux)
