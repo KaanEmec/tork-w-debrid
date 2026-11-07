@@ -96,3 +96,21 @@ func TestLoadRecoversFromCorruptState(t *testing.T) {
 		t.Errorf("corrupt state should be preserved as .bak: %v", err)
 	}
 }
+
+func TestPinDownloadDirFillsOnlyMissingFolders(t *testing.T) {
+	s := &State{Entries: []Entry{
+		{Magnet: "a", Name: "a"},
+		{Magnet: "b", Name: "b", DownloadDir: "/elsewhere"},
+		{Magnet: "c", Name: "c", Paused: true},
+	}}
+	old := t.TempDir()
+	if n := s.PinDownloadDir(old); n != 2 {
+		t.Fatalf("pinned %d, want 2", n)
+	}
+	if s.Entries[0].DownloadDir != old || s.Entries[2].DownloadDir != old || s.Entries[1].DownloadDir != "/elsewhere" {
+		t.Fatalf("entries = %+v", s.Entries)
+	}
+	if s.PinDownloadDir("") != 0 {
+		t.Fatal("empty dir pinned entries")
+	}
+}

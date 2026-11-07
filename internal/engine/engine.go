@@ -209,6 +209,7 @@ type Engine struct {
 	directMinChunkSize   int64
 	pc                   storage.PieceCompletion
 	mu                   sync.Mutex
+	defaultDownloadDir   string // guarded by mu; see SetDefaultDownloadDir
 	items                map[metainfo.Hash]*item
 	direct               map[metainfo.Hash]*directItem // plain-HTTPS downloads (see direct.go)
 	dwg                  sync.WaitGroup                // running direct-download goroutines
@@ -365,6 +366,7 @@ func New(cfg *config.Config) (*Engine, error) {
 	return &Engine{
 		client:               client,
 		cfg:                  cfg,
+		defaultDownloadDir:   cfg.DownloadDir,
 		directMaxConnections: cfg.Direct.MaxConnections,
 		directMinChunkSize:   directMinChunkSize,
 		pc:                   pc,
@@ -380,7 +382,7 @@ func New(cfg *config.Config) (*Engine, error) {
 
 func (e *Engine) normalizeOptions(opts AddOptions) AddOptions {
 	if opts.DownloadDir == "" {
-		opts.DownloadDir = e.cfg.DownloadDir
+		opts.DownloadDir = e.DefaultDownloadDir()
 	}
 	if abs, err := filepath.Abs(opts.DownloadDir); err == nil {
 		opts.DownloadDir = abs
