@@ -30,6 +30,10 @@ type Launch struct {
 	Width, Height int
 	ColorProfile  int
 	Dark          bool
+	// NoMotion is the attaching terminal's answer to "may anything move?":
+	// --no-motion, NO_COLOR, TERM=dumb or stdout not a terminal. The worker has
+	// no terminal of its own, so it cannot tell.
+	NoMotion bool
 }
 
 type request struct {

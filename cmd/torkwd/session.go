@@ -90,7 +90,7 @@ func ensureSession(cfg *config.Config, evil bool) error {
 	return fmt.Errorf("could not start the background session; close any older foreground tork first and check %s", filepath.Join(cfg.Dir(), "session", "worker.log"))
 }
 
-func runSessionUI(cfg *config.Config, target *intake.Target, downloadOverride string, evil bool) error {
+func runSessionUI(cfg *config.Config, target *intake.Target, downloadOverride string, evil, noMotion bool) error {
 	if err := ensureSession(cfg, evil); err != nil {
 		return err
 	}
@@ -98,6 +98,7 @@ func runSessionUI(cfg *config.Config, target *intake.Target, downloadOverride st
 	client, err := session.Attach(cfg.Dir(), session.Launch{
 		Target: target, DownloadDir: downloadOverride, Evil: evil, Build: sessionBuild(),
 		Width: w, Height: h, ColorProfile: int(lipgloss.ColorProfile()), Dark: lipgloss.HasDarkBackground(),
+		NoMotion: noMotion || !tui.MotionAllowed(),
 	})
 	if err != nil {
 		return err
@@ -168,6 +169,8 @@ func runSessionDaemon(args []string) error {
 			if launch.Evil && cfg.SeedAfterComplete {
 				return nil, errors.New("run torkwd stop before starting a new --evil session")
 			}
+			// The worker has no terminal; motion follows the attaching one.
+			app.SetNoMotion(launch.NoMotion)
 			return app.AttachSession(launch.Target)
 		},
 		Detach:     app.DetachSession,

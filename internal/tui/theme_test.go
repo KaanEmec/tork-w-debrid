@@ -18,7 +18,7 @@ import (
 
 // withProfile points the default renderer (which every package style uses) at
 // a fixed colour profile and background for one test.
-func withProfile(t *testing.T, p termenv.Profile, dark bool) {
+func withProfile(t testing.TB, p termenv.Profile, dark bool) {
 	t.Helper()
 	oldProfile, oldDark := lipgloss.ColorProfile(), lipgloss.HasDarkBackground()
 	lipgloss.SetColorProfile(p)

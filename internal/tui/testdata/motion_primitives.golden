@@ -1,0 +1,176 @@
+legend (upper case = bold, . = default):
+  a = accent
+  b = line
+  c = accent-dim
+  d = faint
+  e = accent-shine
+  f = muted
+  g = tork-ramp-1
+  h = tork-ramp-2
+  i = tork-ramp-3
+  j = tork-ramp-4
+  k = tork-ramp-5
+  l = tork-ramp-6
+  m = sky
+  n = lavender
+  o = debrid-ramp-1
+  p = debrid-ramp-2
+  q = debrid-ramp-3
+  r = debrid-ramp-4
+  s = debrid-ramp-5
+  t = debrid-ramp-6
+
+spinner frame 0
+  |⠋|
+  |a|
+spinner frame 1
+  |⠙|
+  |a|
+spinner frame 2
+  |⠹|
+  |a|
+spinner frame 3
+  |⠸|
+  |a|
+spinner frame 4
+  |⠼|
+  |a|
+spinner frame 5
+  |⠴|
+  |a|
+spinner frame 6
+  |⠦|
+  |a|
+spinner frame 7
+  |⠧|
+  |a|
+spinner frame 8
+  |⠇|
+  |a|
+spinner frame 9
+  |⠏|
+  |a|
+spinner frame 10
+  |⠋|
+  |a|
+copper sweep frame 0 width 40
+  |────────────────────────────────────────|
+  |bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+copper sweep frame 1 width 40
+  |────────────────────────────────────────|
+  |accbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+copper sweep frame 3 width 40
+  |────────────────────────────────────────|
+  |caaaaaaccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+copper sweep frame 5 width 40
+  |────────────────────────────────────────|
+  |bbbbbccaaaaaaccbbbbbbbbbbbbbbbbbbbbbbbbb|
+copper sweep frame 8 width 40
+  |────────────────────────────────────────|
+  |bbbbbbbbbbbbbbbccaaaaaaccbbbbbbbbbbbbbbb|
+copper sweep frame 12 width 40
+  |────────────────────────────────────────|
+  |bbbbbbbbbbbbbbbbbbbbbbbbbbbccaaaaaaccbbb|
+copper sweep frame 15 width 40
+  |────────────────────────────────────────|
+  |bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccaa|
+copper sweep frame 16 width 40
+  |────────────────────────────────────────|
+  |bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|
+shine frame 0, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |aaaaaaaaaaaaaaaaaadddddddddddd|
+shine frame 1, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |aaaaaaaaaaaaaaaaaadddddddddddd|
+shine frame 5, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |eeeaaaaaaaaaaaaaaadddddddddddd|
+shine frame 10, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |aaaaeeeaaaaaaaaaaadddddddddddd|
+shine frame 15, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |aaaaaaaeeeaaaaaaaadddddddddddd|
+shine frame 20, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |aaaaaaaaaaaeeeaaaadddddddddddd|
+shine frame 29, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |aaaaaaaaaaaaaaaaaedddddddddddd|
+shine frame 30, 60% of 30
+  |━━━━━━━━━━━━━━━━━━────────────|
+  |aaaaaaaaaaaaaaaaaadddddddddddd|
+logo colour cycle frame 0
+  |                /\_/\                      |
+  |................fffff......................|
+  |               ( ^.^ )                     |
+  |...............ffaaaff.....................|
+  |▀█▀ █▀█ █▀█ █▄▀ > ^ < █▀▄ █▀▀ █▀▄ █▀█ █ █▀▄|
+  |AAGGHHIIJJKKLLMfffffffNNOOOPPPQQQRRRSSSTTTM|
+  | █  █▄█ █▀▄ █▀▄ ▀▄▀▄▀ █▄▀ ██▄ ██▀ █▀▄ █ █▄▀|
+  |AAGGHHIIJJKKLLMmmmmmmmNNOOOPPPQQQRRRSSSTTTM|
+logo colour cycle frame 20
+  |                /\_/\                      |
+  |................fffff......................|
+  |               ( ^.^ )                     |
+  |...............ffaaaff.....................|
+  |▀█▀ █▀█ █▀█ █▄▀ > ^ < █▀▄ █▀▀ █▀▄ █▀█ █ █▀▄|
+  |JJJKKLLMMLLKKJJfffffffRRRSSSTTTMMMMTTSSSSRR|
+  | █  █▄█ █▀▄ █▀▄ ▀▄▀▄▀ █▄▀ ██▄ ██▀ █▀▄ █ █▄▀|
+  |JJJKKLLMMLLKKJJmmmmmmmRRRSSSTTTMMMMTTSSSSRR|
+logo colour cycle frame 40
+  |                /\_/\                      |
+  |................fffff......................|
+  |               ( ^.^ )                     |
+  |...............ffaaaff.....................|
+  |▀█▀ █▀█ █▀█ █▄▀ > ^ < █▀▄ █▀▀ █▀▄ █▀█ █ █▀▄|
+  |MMLLKKJJIIHHGGAfffffffMMTTTSSSRRRQQQPPPOOON|
+  | █  █▄█ █▀▄ █▀▄ ▀▄▀▄▀ █▄▀ ██▄ ██▀ █▀▄ █ █▄▀|
+  |MMLLKKJJIIHHGGAmmmmmmmMMTTTSSSRRRQQQPPPOOON|
+logo colour cycle frame 60
+  |                /\_/\                      |
+  |................fffff......................|
+  |               ( ^.^ )                     |
+  |...............ffaaaff.....................|
+  |▀█▀ █▀█ █▀█ █▄▀ > ^ < █▀▄ █▀▀ █▀▄ █▀█ █ █▀▄|
+  |JIIHHGGAAGGHHIIfffffffRQQQPPPOONNNNOOPPPQQQ|
+  | █  █▄█ █▀▄ █▀▄ ▀▄▀▄▀ █▄▀ ██▄ ██▀ █▀▄ █ █▄▀|
+  |JIIHHGGAAGGHHIImmmmmmmRQQQPPPOONNNNOOPPPQQQ|
+logo colour cycle frame 79
+  |                /\_/\                      |
+  |................fffff......................|
+  |               ( ^.^ )                     |
+  |...............ffaaaff.....................|
+  |▀█▀ █▀█ █▀█ █▄▀ > ^ < █▀▄ █▀▀ █▀▄ █▀█ █ █▀▄|
+  |AAGGHHIIJJJKKLLfffffffNNNOOOPPPQQQRRRSSSTTT|
+  | █  █▄█ █▀▄ █▀▄ ▀▄▀▄▀ █▄▀ ██▄ ██▀ █▀▄ █ █▄▀|
+  |AAGGHHIIJJJKKLLmmmmmmmNNNOOOPPPQQQRRRSSSTTT|
+logo colour cycle frame 80
+  |                /\_/\                      |
+  |................fffff......................|
+  |               ( ^.^ )                     |
+  |...............ffaaaff.....................|
+  |▀█▀ █▀█ █▀█ █▄▀ > ^ < █▀▄ █▀▀ █▀▄ █▀█ █ █▀▄|
+  |AAGGHHIIJJKKLLMfffffffNNOOOPPPQQQRRRSSSTTTM|
+  | █  █▄█ █▀▄ █▀▄ ▀▄▀▄▀ █▄▀ ██▄ ██▀ █▀▄ █ █▄▀|
+  |AAGGHHIIJJKKLLMmmmmmmmNNOOOPPPQQQRRRSSSTTTM|
+cursor blink frames 0-19
+  |█████_____█████_____|
+  |....................|
+cat eyes
+  |0:^.^ 1:^.^ 47:^.^ 48:-.- 49:-.- 50:^.^ 98:-.- 99:-.-|
+  |.....................................................|
+fade age 0
+  |queued|
+  |dddddd|
+fade age 1
+  |queued|
+  |ffffff|
+fade age 2
+  |queued|
+  |aaaaaa|
+fade age 3
+  |queued|
+  |aaaaaa|
+
