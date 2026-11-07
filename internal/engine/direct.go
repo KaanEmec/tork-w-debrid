@@ -29,7 +29,7 @@ import (
 // directItem tracks one HTTP download. All fields are guarded by Engine.mu.
 type directItem struct {
 	url          string
-	name         string // file name under DownloadDir (pre-validated by safeDataPath)
+	name         string // file name or "/" path under DownloadDir (pre-validated by safeDirectName)
 	checksum     Checksum
 	expectedSize int64
 	lockedOrigin string
@@ -126,10 +126,13 @@ func (e *Engine) AddDirectDownloadWithOptions(spec DirectDownload, opts AddOptio
 	if spec.Name == "" {
 		spec.Name = path.Base(strings.TrimRight(parsed.Path, "/"))
 	}
-	if !safeDirectFilename(spec.Name) {
+	if !safeDirectName(spec.Name) {
 		return metainfo.Hash{}, fmt.Errorf("unsafe file name %q", spec.Name)
 	}
 	dataPath, ok := safeDataPath(opts.DownloadDir, spec.Name)
+	if ok && strings.Contains(spec.Name, "/") {
+		dataPath, ok = safeRelDataPath(opts.DownloadDir, spec.Name)
+	}
 	if !ok {
 		return metainfo.Hash{}, fmt.Errorf("unsafe file name %q", spec.Name)
 	}
@@ -229,6 +232,11 @@ func (e *Engine) runDirect(ctx context.Context, it *directItem) {
 	dest := it.dataPath
 	if dest == "" {
 		dest, _ = safeDataPath(it.downloadDir, it.name) // validated in AddDirect
+	}
+	// a "/" name writes into subfolders: create them (refusing links) first
+	if err := ensureRelParents(it.downloadDir, it.name); err != nil {
+		e.failDirect(ctx, it, err)
+		return
 	}
 	part := dest + ".part"
 	if fi, err := os.Lstat(part); err == nil {
