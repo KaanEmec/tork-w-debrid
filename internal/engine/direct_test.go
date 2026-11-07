@@ -441,7 +441,6 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 	if _, err := rand.Read(payload); err != nil {
 		t.Fatal(err)
 	}
-	var active atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"fixed"`)
 		w.Header().Set("Content-Length", fmt.Sprint(len(payload)))
@@ -453,8 +452,6 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 			w.Write(payload)
 			return
 		}
-		active.Add(1)
-		defer active.Add(-1)
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
 		w.WriteHeader(http.StatusPartialContent)
 		for offset := start; offset <= end; {
@@ -472,6 +469,9 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 	defer ts.Close()
 	eng := newDirectTestEngine(t)
 	eng.directMinChunkSize = 64 << 10
+	// Count open requests on the client: the server notices a closed
+	// connection only on its next write, a moment after Pause returns.
+	requests := countDirectRequests(eng)
 	h, err := eng.AddDirect(ts.URL+"/image.iso", "image.iso", sumHex(payload))
 	if err != nil {
 		t.Fatal(err)
@@ -480,8 +480,8 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 	if err := eng.Pause(h); err != nil {
 		t.Fatal(err)
 	}
-	if active.Load() != 0 {
-		t.Fatalf("Pause returned with %d active requests", active.Load())
+	if n := requests.open.Load(); n != 0 {
+		t.Fatalf("Pause returned with %d open requests", n)
 	}
 	if err := eng.Resume(h); err != nil {
 		t.Fatal(err)

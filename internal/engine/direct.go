@@ -297,53 +297,13 @@ func (e *Engine) runDirect(ctx context.Context, it *directItem) {
 	}
 
 	hasher, _ := it.checksum.newHash()
-	offset := hashExistingPart(part, hasher)
+	st := singleTransfer{part: part, hasher: hasher}
+	st.offset = hashExistingPart(part, hasher)
 	e.mu.Lock()
-	it.done = offset
+	it.done = st.offset
 	e.mu.Unlock()
 
-	resp, err := e.openDirect(ctx, it, offset)
-	if err != nil {
-		e.failDirect(ctx, it, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK && offset > 0 {
-		// server ignored the Range request: start over
-		offset = 0
-		hasher, _ = it.checksum.newHash()
-	}
-	length := totalLength(resp, offset)
-	if it.expectedSize > 0 && length > 0 && length != it.expectedSize {
-		e.failDirect(ctx, it, fmt.Errorf("server reported %d bytes, expected %d", length, it.expectedSize))
-		return
-	}
-
-	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
-	if offset == 0 {
-		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	}
-	if fi, err := os.Lstat(part); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular()) {
-		e.failDirect(ctx, it, errors.New("partial download path is not a regular file; refusing to write"))
-		return
-	}
-	f, err := os.OpenFile(part, flags, 0o644)
-	if err != nil {
-		e.failDirect(ctx, it, err)
-		return
-	}
-
-	e.mu.Lock()
-	it.length = length
-	e.mu.Unlock()
-
-	if err := e.copyDirect(it, f, resp.Body, hasher, offset); err != nil {
-		f.Close()
-		e.failDirect(ctx, it, err)
-		return
-	}
-	if err := f.Close(); err != nil {
+	if err := e.downloadDirectSingle(ctx, it, &st); err != nil {
 		e.failDirect(ctx, it, err)
 		return
 	}
@@ -357,7 +317,7 @@ func (e *Engine) runDirect(ctx context.Context, it *directItem) {
 		return
 	}
 	if !it.checksum.Empty() {
-		if got := hex.EncodeToString(hasher.Sum(nil)); got != it.checksum.Hex {
+		if got := hex.EncodeToString(st.hasher.Sum(nil)); got != it.checksum.Hex {
 			os.Remove(part)
 			e.mu.Lock()
 			it.done, it.state, it.cancel = 0, StatePaused, nil
@@ -380,18 +340,145 @@ func (e *Engine) runDirect(ctx context.Context, it *directItem) {
 	e.mu.Unlock()
 }
 
-// copyDirect streams body to the file and hasher, publishing progress.
-func (e *Engine) copyDirect(it *directItem, f *os.File, body io.Reader, hasher hash.Hash, offset int64) error {
+// singleTransfer is the state of a single-connection download that survives
+// retries: the bytes in the .part file, the hash over them, and the total
+// size the server reported first.
+type singleTransfer struct {
+	part   string
+	offset int64
+	hasher hash.Hash
+	length int64
+}
+
+// downloadDirectSingle downloads the rest of the file over one connection.
+// A failed attempt is retried from the .part offset (roadmap J7.3): an
+// expired link (403, 404, 410) is refreshed when the item can refresh it, a
+// busy server (429, 503) is waited for, and network errors and 5xx answers
+// back off and retry, at most directTuning.maxTries times in a row without
+// progress. Other 4xx answers fail at once.
+func (e *Engine) downloadDirectSingle(ctx context.Context, it *directItem, st *singleTransfer) error {
+	tries := 0
+	for {
+		before := st.offset
+		gen, err := e.directSingleAttempt(ctx, it, st)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if st.offset-before >= directTuning.progressReset {
+			tries = 0
+		}
+		var status directStatusError
+		isStatus := errors.As(err, &status)
+		switch classifyDirectErr(err) {
+		case errKindFatal, errKindProtocol, errKindRestart:
+			return err
+		case errKindExpired:
+			if !e.directCanRefresh(it) {
+				return err
+			}
+			if rerr := e.refreshDirectURL(ctx, it, gen); rerr != nil {
+				return rerr
+			}
+			continue
+		case errKindRetry:
+			if isStatus && status.code < 500 {
+				return err
+			}
+		}
+		tries++
+		if tries >= directTuning.maxTries {
+			return fmt.Errorf("failed %d times - %s", tries, lastErrPart(err))
+		}
+		delay := directBackoff(tries)
+		if isStatus && status.retryAfter > delay {
+			delay = status.retryAfter
+		}
+		if isStatus && (status.code == http.StatusTooManyRequests || status.code == http.StatusServiceUnavailable) {
+			e.setDirectNote(it, "server busy, retrying")
+		} else {
+			e.setDirectNote(it, fmt.Sprintf("reconnecting (%d/%d)", tries+1, directTuning.maxTries))
+		}
+		if !sleepCtx(ctx, delay) {
+			return ctx.Err()
+		}
+	}
+}
+
+// directSingleAttempt requests the file from st.offset and appends what
+// arrives to the .part file. It returns the URL generation it used, for
+// refreshDirectURL.
+func (e *Engine) directSingleAttempt(ctx context.Context, it *directItem, st *singleTransfer) (int, error) {
+	resp, gen, err := e.openDirect(ctx, it, st.offset)
+	if err != nil {
+		return gen, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK && st.offset > 0 {
+		// server ignored the Range request: start over
+		st.offset = 0
+		st.hasher, _ = it.checksum.newHash()
+	}
+	if resp.StatusCode == http.StatusPartialContent && st.offset > 0 {
+		if start, _, _, ok := parseContentRange(resp.Header.Get("Content-Range")); ok && start != st.offset {
+			return gen, directFatalError{fmt.Errorf("server resumed at byte %d, asked for %d", start, st.offset)}
+		}
+	}
+	length := totalLength(resp, st.offset)
+	if it.expectedSize > 0 && length > 0 && length != it.expectedSize {
+		return gen, directFatalError{fmt.Errorf("server reported %d bytes, expected %d", length, it.expectedSize)}
+	}
+	if st.length > 0 && length > 0 && length != st.length {
+		return gen, directFatalError{fmt.Errorf("remote file changed size from %d to %d bytes", st.length, length)}
+	}
+	if length > 0 {
+		st.length = length
+	}
+
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	if st.offset == 0 {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	}
+	if fi, err := os.Lstat(st.part); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular()) {
+		return gen, directFatalError{errors.New("partial download path is not a regular file; refusing to write")}
+	}
+	f, err := os.OpenFile(st.part, flags, 0o644)
+	if err != nil {
+		return gen, directFatalError{err}
+	}
+
+	e.mu.Lock()
+	it.length = length
+	it.done = st.offset
+	if it.state == StateDownloading && it.note != "refreshing link" {
+		it.note = "" // the connection works again
+	}
+	e.mu.Unlock()
+
+	done, copyErr := e.copyDirect(it, f, resp.Body, st.hasher, st.offset)
+	st.offset = done
+	if closeErr := f.Close(); copyErr == nil && closeErr != nil {
+		copyErr = directFatalError{closeErr}
+	}
+	return gen, copyErr
+}
+
+// copyDirect streams body to the file and hasher, publishing progress. It
+// returns the file offset reached.
+func (e *Engine) copyDirect(it *directItem, f *os.File, body io.Reader, hasher hash.Hash, offset int64) (int64, error) {
 	buf := make([]byte, 128<<10)
 	done := offset
 	for {
 		n, rerr := body.Read(buf)
 		if n > 0 {
 			if it.expectedSize > 0 && done+int64(n) > it.expectedSize {
-				return fmt.Errorf("server exceeded the declared size of %d bytes", it.expectedSize)
+				return done, directFatalError{fmt.Errorf("server exceeded the declared size of %d bytes", it.expectedSize)}
 			}
 			if _, werr := f.Write(buf[:n]); werr != nil {
-				return werr
+				return done, directFatalError{werr}
 			}
 			hasher.Write(buf[:n])
 			done += int64(n)
@@ -400,22 +487,24 @@ func (e *Engine) copyDirect(it *directItem, f *os.File, body io.Reader, hasher h
 			e.mu.Unlock()
 		}
 		if rerr == io.EOF {
-			return nil
+			return done, nil
 		}
 		if rerr != nil {
-			return rerr
+			return done, rerr
 		}
 	}
 }
 
-func (e *Engine) openDirect(ctx context.Context, it *directItem, offset int64) (*http.Response, error) {
-	link, _, err := e.directURL(ctx, it)
+// openDirect requests the file from offset with the item's current URL and
+// returns the response with the URL generation it used.
+func (e *Engine) openDirect(ctx context.Context, it *directItem, offset int64) (*http.Response, int, error) {
+	link, gen, err := e.directURL(ctx, it)
 	if err != nil {
-		return nil, err
+		return nil, gen, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
-		return nil, err
+		return nil, gen, directFatalError{err}
 	}
 	req.Header.Set("User-Agent", directUserAgent)
 	if offset > 0 {
@@ -423,13 +512,13 @@ func (e *Engine) openDirect(ctx context.Context, it *directItem, offset int64) (
 	}
 	resp, err := e.doDirectRequest(req, it)
 	if err != nil {
-		return nil, err
+		return nil, gen, err
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		resp.Body.Close()
-		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return nil, gen, newDirectStatusError(resp)
 	}
-	return resp, nil
+	return resp, gen, nil
 }
 
 func directURLOrigin(u *url.URL) string {
