@@ -77,5 +77,5 @@ func (a *App) viewPickFilters() string {
 	if s := strings.TrimSpace(r.filterIn.Value()); s != "" {
 		body += "\n" + styleDim.Render(fmt.Sprintf("Advanced filter also active: %s", s))
 	}
-	return a.chrome("results", body, hints(hint("space / ←→", "change"), hint("enter", "apply"), hint("esc", "cancel")))
+	return a.chrome(a.resultsContext("filters"), body, hints(hint("space / ←→", "change"), hint("enter", "apply"), hint("esc", "cancel")))
 }

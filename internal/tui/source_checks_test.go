@@ -137,7 +137,7 @@ func TestSourcesCheckAllEnabledOnEntryWithoutDuplicates(t *testing.T) {
 	if first.Load() != 1 || second.Load() != 1 || disabled.Load() != 0 {
 		t.Fatal("checked wrong sources")
 	}
-	if strings.Count(a.View(), "working") < 2 {
+	if strings.Count(a.View(), "0 results ·") < 2 {
 		t.Fatal("completed enabled checks still missing working status")
 	}
 	if extra := a.navigate(screenSources); extra != nil {

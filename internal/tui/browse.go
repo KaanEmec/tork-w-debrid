@@ -114,7 +114,7 @@ func (a *App) viewBrowse() string {
 	r := &a.results
 	w := a.browseWidth()
 	a.search.input.Width = max(1, w-10)
-	search := styleDim.Render("Search  ") + styleFg.Render(r.query) + styleFaint.Render("  / edit")
+	search := styleDim.Render("Search  ") + styleFg.Render(r.query) + styleDim.Render("  / edit")
 	if r.editSearch {
 		search = styleKey.Render("Search  ") + a.search.input.View()
 	}
@@ -187,7 +187,7 @@ func (a *App) viewBrowse() string {
 			help += "  " + styleErr.Render(r.filterErr)
 		}
 	}
-	return a.chrome("tork · browse", body, help)
+	return a.chrome(a.resultsContext("browse"), body, help)
 }
 func (a *App) browseNav() string {
 	r := &a.results

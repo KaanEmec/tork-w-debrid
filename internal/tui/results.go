@@ -24,6 +24,7 @@ type scoredRow struct {
 	tags  rank.Tags
 	score float64
 	noisy bool // display-only: dead/cam/off-topic/language-variant, dimmed in the list
+	born  int  // frame the row arrived on, for its fade-in
 }
 
 type sortMode int
@@ -95,6 +96,8 @@ type resultsModel struct {
 	bestIdx          int        // r.rows index of the single best pick, or -1 (see recomputeBest)
 	meterMax         int        // max seeders among visible rows: one shared meter scale
 	resortPending    bool       // a merge changed a row's sort key; refreshFilter re-orders
+	nowFrame         int        // the app's frame while results arrive (born stamps)
+	lastBorn         int        // newest row's born frame, or -1; keeps the clock for its fade
 
 	resultCh <-chan provider.Result
 	statusCh <-chan aggregator.StatusEvent
@@ -117,6 +120,7 @@ func newResultsModel(w rank.Weights) resultsModel {
 		filterIn:    fi,
 		weights:     w,
 		bestIdx:     -1,
+		lastBorn:    -1,
 		openResults: true,
 		openStatus:  true,
 	}
@@ -152,6 +156,7 @@ func (a *App) updateResults(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.searchID != r.searchID {
 			return a, nil
 		}
+		r.nowFrame = a.motion.frame
 		// Drain whatever else is already buffered on the channel and refresh the
 		// view once, so a burst of providers doesn't trigger a full re-sort +
 		// re-filter + re-group per result.
@@ -239,6 +244,12 @@ func (a *App) updateResultsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "esc":
 		a.cancelResolve()
+		if r.searching && r.cancel != nil {
+			// The first esc stops a streaming search and keeps what arrived.
+			r.cancel()
+			r.searching, r.openResults, r.openStatus = false, false, false
+			return a, nil
+		}
 		return a, a.navigate(screenSearch)
 	case "/":
 		if r.browser {
@@ -249,6 +260,14 @@ func (a *App) updateResultsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r.browser {
 			r.navFocused = true
 			r.navCursor = r.category
+			return a, nil
+		}
+		if r.curated && msg.String() == "c" {
+			// Categories live in the browser view; v comes back to the picks.
+			r.browser, r.curated = true, false
+			r.navFocused = true
+			r.navCursor = r.category
+			r.refreshFilter()
 			return a, nil
 		}
 	case "z":
@@ -546,6 +565,7 @@ func (r *resultsModel) insertRow(res provider.Result) {
 		r.hashes[row.hash] = true
 	}
 	// first position where the existing row is not better than the new one
+	r.lastBorn = row.born
 	pos := sort.Search(len(r.rows), func(i int) bool { return !r.betterThan(r.rows[i], row) })
 	r.rows = append(r.rows, scoredRow{})
 	copy(r.rows[pos+1:], r.rows[pos:])
@@ -563,6 +583,7 @@ func (r *resultsModel) newRow(res provider.Result) scoredRow {
 		tags:  tags,
 		score: rank.Score(res, tags, r.weights),
 		noisy: rank.Noisy(r.query, res.Title, tags, res.Seeders),
+		born:  r.nowFrame,
 	}
 }
 
@@ -590,7 +611,9 @@ func (r *resultsModel) mergeRow(incoming scoredRow) bool {
 		if other.score > keep.score {
 			keep, other = other, keep
 		}
+		born := r.rows[i].born
 		r.rows[i] = r.newRow(provider.Merge(keep.res, other.res))
+		r.rows[i].born = born
 		r.merged++
 		r.resortPending = true // a higher seeder count can outrank the row above
 		return true
@@ -790,7 +813,7 @@ func (a *App) viewResults() string {
 		}
 		if !r.filtering {
 			b.WriteString("\n" + styleFg.Bold(true).Render(title) + "\n" + styleDim.Render(detail))
-			return a.chrome("results", b.String(), hints(hint("esc", "search"), hint("/", "filters"), hint("?", "keys")))
+			return a.chrome(a.resultsContext(""), b.String(), hints(hint("esc", "search"), hint("/", "filters"), hint("?", "keys")))
 		}
 	}
 
@@ -812,7 +835,7 @@ func (a *App) viewResults() string {
 		b.WriteString("\n")
 	} else {
 		lay := newResultsLayout(width)
-		b.WriteString(styleFaint.Render(fmt.Sprintf("   %-*s %*s %*s %*s %*s  %s",
+		b.WriteString(styleDim.Render(fmt.Sprintf("   %-*s %*s %*s %*s %*s  %s",
 			lay.titleW, "title", lay.sizeW, "size", lay.seedW, "S", lay.leechW, "L", lay.resW, "res", "prov")) + "\n")
 
 		b.WriteString(renderWindow(&r.win, len(r.visible), listH, width, func(vi int, selected bool) string {
@@ -824,11 +847,11 @@ func (a *App) viewResults() string {
 				lay.sizeW, truncate(row.res.Size, lay.sizeW),
 				styleSeeders.Render(fmt.Sprintf("%*d", lay.seedW, row.res.Seeders)),
 				styleLeechers.Render(fmt.Sprintf("%*d", lay.leechW, row.res.Leechers)),
-				styleFaint.Render(fmt.Sprintf("%*s", lay.resW, row.tags.Resolution.String())),
+				styleDim.Render(fmt.Sprintf("%*s", lay.resW, row.tags.Resolution.String())),
 				sourceTag(row.res, false),
 			)
 			if !selected && row.noisy {
-				line = styleFaint.Render(line)
+				line = styleDim.Render(line)
 			}
 			return line
 		}))
@@ -846,9 +869,9 @@ func (a *App) viewResults() string {
 		if r.filterErr != "" {
 			help += "  " + styleErr.Render(r.filterErr)
 		} else if r.filterHint != "" {
-			help += "  " + styleFaint.Render(r.filterHint)
+			help += "  " + styleDim.Render(r.filterHint)
 		} else {
-			help += "  " + styleFaint.Render("try res:1080p  seeders:>20  size:<8gb  is:trusted")
+			help += "  " + styleDim.Render("try res:1080p  seeders:>20  size:<8gb  is:trusted")
 		}
 	case r.resolving:
 		help = styleDim.Render("resolving magnet…")
@@ -860,11 +883,11 @@ func (a *App) viewResults() string {
 		help = a.keyStrip(a.helpBudget(width))
 	}
 
-	ctx := "results"
-	if r.query != "" {
-		ctx = "results · " + r.query
+	view := "all results"
+	if r.grouped {
+		view = "groups"
 	}
-	return a.chrome(ctx, b.String(), help)
+	return a.chrome(a.resultsContext(view), b.String(), help)
 }
 
 // resultDetail turns the flat live list into a decision view: the highlighted
@@ -881,7 +904,7 @@ func (a *App) resultDetail(width int) string {
 		return strings.Join(append(lines, styleDim.Render("no result selected"), "", "", ""), "\n")
 	}
 	row := r.rows[idx]
-	trust := styleFaint.Render("untrusted")
+	trust := styleDim.Render("untrusted")
 	if row.res.Trusted {
 		trust = styleOK.Render("trusted")
 	}
@@ -909,7 +932,7 @@ func (a *App) resultDetail(width int) string {
 		styleFg.Render(truncate(row.res.Title, width)),
 		truncate(fmt.Sprintf("%s  %s  %s  score %.1f", sourceCol(row.res, false), trust, strings.Join(quality, " · "), row.score), width),
 		truncate(fmt.Sprintf("%s %d   %s %d   %s   %s", styleSeeders.Render("S"), row.res.Seeders, styleLeechers.Render("L"), row.res.Leechers, size, magnetCell(row.res)), width),
-		truncate(noise+styleFaint.Render(" · "+plural(len(row.res.Trackers()), "tracker")), width),
+		truncate(noise+styleDim.Render(" · "+plural(len(row.res.Trackers()), "tracker")), width),
 	)
 	return strings.Join(lines, "\n")
 }
@@ -988,17 +1011,30 @@ func (r *resultsModel) statusLine(agg *aggregator.Aggregator) string {
 
 	line := head
 	if r.grouped && len(r.groups) > 0 {
-		line += styleFaint.Render(fmt.Sprintf("  · %d groups", len(r.groups)))
+		line += styleDim.Render(fmt.Sprintf("  · %d groups", len(r.groups)))
 	}
 	if r.merged > 0 {
-		line += styleFaint.Render(fmt.Sprintf("  · %d merged", r.merged))
+		line += styleDim.Render(fmt.Sprintf("  · %d merged", r.merged))
 	}
 	if hidden > 0 {
-		line += styleFaint.Render(fmt.Sprintf("  · %d hidden", hidden))
+		line += styleDim.Render(fmt.Sprintf("  · %d hidden", hidden))
 	}
 	line += styleDim.Render("   ") + strings.Join(chips, styleDim.Render(" · "))
 	if r.searching && len(r.rows) > 0 {
 		line += styleBrand.Render("  · live")
 	}
 	return line
+}
+
+// resultsContext is the Results breadcrumb: "<query> › <view>", or just the
+// query (or "results") when view is empty.
+func (a *App) resultsContext(view string) string {
+	ctx := strings.TrimSpace(a.results.query)
+	if ctx == "" {
+		ctx = "results"
+	}
+	if view != "" {
+		ctx += crumbSep + view
+	}
+	return ctx
 }

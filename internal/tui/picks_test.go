@@ -173,7 +173,7 @@ func TestPickViewsFitAndFirstHeadingRemainsVisible(t *testing.T) {
 			if len(strings.Split(view, "\n")) != a.height {
 				t.Fatal("wrong frame height")
 			}
-			if !panel && !strings.Contains(view, "1080p · 1 release") {
+			if !panel && !strings.Contains(view, "1080p  1") {
 				t.Fatal("first group header scrolled out before user moved")
 			}
 		}
@@ -250,9 +250,9 @@ func TestPickDetailPanelStaysPinnedAcrossExpansionAndResize(t *testing.T) {
 				if len(lines) != a.height {
 					t.Fatal("frame height changed")
 				}
-				// Two header rows + three summary/column rows + the fixed viewport.
-				detail := lines[5+a.pickRows()]
-				if !strings.Contains(detail, "Selected") && !strings.Contains(detail, "More releases") {
+				// Header and rule, the column header, the viewport, a blank line.
+				detail := lines[4+a.pickRows()]
+				if !strings.Contains(detail, "looks clean") && !strings.Contains(detail, "check:") && !strings.Contains(detail, "enter") {
 					t.Fatalf("detail panel moved: %q", detail)
 				}
 			}

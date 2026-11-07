@@ -83,7 +83,7 @@ func TestResultPanelsFitAndScrollOnSmallTerminals(t *testing.T) {
 				addPick(a, i, fmt.Sprintf("Release-%02d 1080p WEB-DL", i), i*50, 3<<30)
 			}
 			a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
-			if !strings.Contains(a.View(), "Show 7 more") {
+			if !strings.Contains(a.View(), "+ 7 more") {
 				t.Fatalf("%dx%d scrolled release action out of view", width, height)
 			}
 			for _, sourcePanel := range []bool{false, true} {

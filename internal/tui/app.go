@@ -62,7 +62,26 @@ type App struct {
 	background      bool      // UI is attached to a persistent local session
 	pendingAdds     int       // approved add commands not yet recorded in state
 	clipboardOutput io.Writer // shared with the foreground renderer
+	motion          motionState
+	debrid          debridStatus
 }
+
+// debridStatus is what the UI shows about Real-Debrid routing. The debrid
+// jobs (J2.4) set it through SetDebridStatus; the UI only reads it.
+type debridStatus struct {
+	linked          bool
+	useForDownloads bool
+}
+
+// SetDebridStatus tells the UI whether a Real-Debrid account is linked and
+// whether "use for downloads" is on. Only both together show the lavender
+// "☁ RD" marker and "via Real-Debrid" lines.
+func (a *App) SetDebridStatus(linked, useForDownloads bool) {
+	a.debrid = debridStatus{linked: linked, useForDownloads: useForDownloads}
+}
+
+// debridRouting reports whether new downloads go through Real-Debrid.
+func (a *App) debridRouting() bool { return a.debrid.linked && a.debrid.useForDownloads }
 
 func New(cfg *config.Config, eng *engine.Engine, agg *aggregator.Aggregator, st *state.State, hs *health.Store) *App {
 	a := &App{
@@ -75,6 +94,7 @@ func New(cfg *config.Config, eng *engine.Engine, agg *aggregator.Aggregator, st 
 		isos:      newISOsModel(),
 		results:   newResultsModel(cfg.Ranking),
 		downloads: newDownloadsModel(),
+		motion:    newMotionState(),
 	}
 	if runtime := cfg.ProxyRuntime(); runtime != nil && runtime.Enabled() {
 		a.proxy.state = proxyBadgeUnverified
@@ -109,8 +129,22 @@ func (a *App) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// Update handles one message, then arms the frame clock if the screen now has
+// something moving (and leaves it stopped otherwise).
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := a.update(msg)
+	if frame := a.ensureFrame(); frame != nil {
+		cmd = tea.Batch(cmd, frame)
+	}
+	return model, cmd
+}
+
+func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case frameMsg:
+		a.onFrame()
+		return a, nil
+
 	case tea.WindowSizeMsg:
 		// viewDownloads re-derives the bar width from contentWidth every render
 		a.width, a.height = msg.Width, msg.Height
@@ -134,6 +168,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.navigate(screenDownloads)
 			case "f4":
 				return a, a.navigate(screenSources)
+			case "f5":
+				return a, a.openSettings()
 			}
 		}
 		if a.screen == screenResults && a.results.pickPanel {

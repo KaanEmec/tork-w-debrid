@@ -145,7 +145,7 @@ func (a *App) viewISOs() string {
 	m := &a.isos
 	width := a.contentWidth()
 	intro := styleDim.Render("official images, resolved live from each project’s own mirror") +
-		styleFaint.Render(" · you seed it back when it’s done")
+		styleDim.Render(" · you seed it back when it’s done")
 	body := intro + "\n\n" + a.renderISOShelf(width, a.isoScreenRows())
 
 	var help string
@@ -201,14 +201,14 @@ func (a *App) renderISOShelf(width, rows int) string {
 		}
 		d := m.distros[row.distro]
 		return styleBrand.Render(padRight(d.Name, lay.nameW)) +
-			styleFaint.Render(padRight(d.Edition, lay.edW)) +
+			styleDim.Render(padRight(d.Edition, lay.edW)) +
 			styleDim.Render(truncate(d.Blurb, lay.blurbW))
 	})
 
 	// a small "more below/above" affordance so scrolling is discoverable
 	start, end := m.win.clamp(len(m.rows), rows)
 	if hidden := len(m.rows) - (end - start); hidden > 0 {
-		list += "\n" + styleFaint.Render(fmt.Sprintf("  … %d more (↑↓)", hidden))
+		list += "\n" + styleDim.Render(fmt.Sprintf("  … %d more (↑↓)", hidden))
 	}
 	return list
 }

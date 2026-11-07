@@ -145,9 +145,10 @@ func TestFunctionKeysNavigateAndPreserveSearch(t *testing.T) {
 	if strings.Contains(a.View(), "tork  ·  home") {
 		t.Fatal("redundant home header remains")
 	}
-	a.results.query = ""
-	if len(a.homeDestinations()) != 3 {
-		t.Fatal("empty results should not clutter home")
+	for _, d := range a.homeDestinations() {
+		if d.screen == screenResults {
+			t.Fatal("results belong on F2, not the home menu")
+		}
 	}
 }
 

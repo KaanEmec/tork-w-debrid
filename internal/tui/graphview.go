@@ -325,7 +325,7 @@ func (a *App) graphColumns(width int) string {
 		padRight("title", lay.titleW),
 		lay.cols("src", "provider", "seeds", "", "size"),
 	)
-	return styleFaint.Render(truncate(head, width))
+	return styleDim.Render(truncate(head, width))
 }
 
 // titleCell fits a title plus its trailing badges into the flexible column:
@@ -385,7 +385,7 @@ func (r *resultsModel) graphHeader(g *group, width int, selected bool) string {
 	line := fmt.Sprintf("%s %s %s", arrowS, padRight(label, lay.titleW), cols)
 	line = truncate(line, width-1) // renderWindow prepends the 1-col gutter
 	if !selected && allNoisy {
-		return styleFaint.Render(line)
+		return styleDim.Render(line)
 	}
 	return line
 }
@@ -427,7 +427,7 @@ func (r *resultsModel) graphLeaf(g *group, leaf, width int, selected bool) strin
 	line := fmt.Sprintf("%s %s %s", guideS, padRight(truncate(inner, lay.titleW), lay.titleW), cols)
 	line = truncate(line, width-1) // renderWindow prepends the 1-col gutter
 	if !selected && row.noisy {
-		return styleFaint.Render(line)
+		return styleDim.Render(line)
 	}
 	return line
 }
@@ -485,7 +485,7 @@ func (r *resultsModel) graphFlatLeaf(idx, width int, selected bool) string {
 	line := fmt.Sprintf("  %s %s", padRight(title, lay.titleW), cols)
 	line = truncate(line, width-1) // renderWindow prepends the 1-col gutter
 	if !selected && row.noisy {
-		return styleFaint.Render(line)
+		return styleDim.Render(line)
 	}
 	return line
 }
@@ -500,10 +500,10 @@ func sourceBadges(row scoredRow, plain bool) string {
 		badges = append(badges, colorize(plain, styleOK, "trusted"))
 	}
 	if res.Magnet == "" {
-		badges = append(badges, colorize(plain, styleFaint, "resolve"))
+		badges = append(badges, colorize(plain, styleDim, "resolve"))
 	}
 	if row.noisy {
-		badges = append(badges, colorize(plain, styleFaint, "noisy"))
+		badges = append(badges, colorize(plain, styleDim, "noisy"))
 	}
 	return strings.Join(badges, " ")
 }
@@ -514,13 +514,13 @@ func sourceBadges(row scoredRow, plain bool) string {
 // sets, so it finds peers none of those listings would have reached alone.
 func magnetCell(res provider.Result) string {
 	if res.Magnet == "" {
-		return styleFaint.Render("needs resolve")
+		return styleDim.Render("needs resolve")
 	}
 	n := len(res.Trackers())
 	if n == 0 {
 		return styleOK.Render("magnet ready")
 	}
-	return styleOK.Render("magnet ready") + styleFaint.Render(" · "+plural(n, "tracker"))
+	return styleOK.Render("magnet ready") + styleDim.Render(" · "+plural(n, "tracker"))
 }
 
 // seedPill renders S<n> colored by swarm health (faint when dead); plain drops
@@ -532,7 +532,7 @@ func seedPill(seeders int, plain bool) string {
 	}
 	st := seederBarStyle(seeders)
 	if seeders <= 0 {
-		st = styleFaint
+		st = styleDim
 	}
 	return st.Render(s)
 }
@@ -603,7 +603,7 @@ func groupProviders(r *resultsModel, g *group, plain bool) string {
 	}
 	out := strings.Join(tags, " ")
 	if extra > 0 {
-		out += " " + colorize(plain, styleFaint, fmt.Sprintf("+%d", extra))
+		out += " " + colorize(plain, styleDim, fmt.Sprintf("+%d", extra))
 	}
 	return out
 }
@@ -643,7 +643,7 @@ func (a *App) graphDetail(width int) string {
 	row := r.rows[g.rowIdx[it.leaf]]
 	median, spread := groupSizeSpread(r.rows, g.rowIdx)
 	magnet := magnetCell(row.res)
-	trusted := styleFaint.Render("untrusted")
+	trusted := styleDim.Render("untrusted")
 	if row.res.Trusted {
 		trusted = styleOK.Render("trusted")
 	}
@@ -778,13 +778,13 @@ func groupSizeSpread(rows []scoredRow, idxs []int) (median int64, maxDevPct floa
 
 func formatSizeSpread(median int64, spread float64) string {
 	if median == 0 {
-		return styleFaint.Render("size unknown")
+		return styleDim.Render("size unknown")
 	}
 	if spread <= 5 {
-		return styleOK.Render("sizes agree") + styleFaint.Render(" · median ") + styleDim.Render(humanBytes(median))
+		return styleOK.Render("sizes agree") + styleDim.Render(" · median ") + styleDim.Render(humanBytes(median))
 	}
 	return styleHealthMid.Render(fmt.Sprintf("size varies ±%.0f%%", spread)) +
-		styleFaint.Render(" · median ") + styleDim.Render(humanBytes(median))
+		styleDim.Render(" · median ") + styleDim.Render(humanBytes(median))
 }
 
 func lipglossWidth(s string) int {
