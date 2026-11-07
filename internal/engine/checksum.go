@@ -108,4 +108,26 @@ type DirectDownload struct {
 	// LockToOrigin refuses redirects to a different scheme, host, or port. It
 	// is intended for downloads whose publisher origin is known.
 	LockToOrigin bool
+	// ResumeKey identifies the remote file independently of its URL, for
+	// example "<infohash>/<remote file id>" for a debrid file. The saved
+	// progress is keyed by it, so a fresh link keeps every byte already
+	// downloaded. Empty means the URL is the key (the ISO shelf).
+	ResumeKey string
+	// RefreshURL, when set, is called for a fresh link when the current one
+	// answers 403, 404 or 410 (at most three times per run).
+	RefreshURL URLRefresher
+	// Connections is this download's connection count (0 = direct.max_connections).
+	// It can be changed while running with Engine.SetDirectConnections.
+	Connections int
+	// Budget, when set, caps the connections this download shares with others
+	// (for example all files of one torrent).
+	Budget *ConnectionBudget
+}
+
+// key is what identifies the download: its ResumeKey, or else its URL.
+func (d DirectDownload) key() string {
+	if d.ResumeKey != "" {
+		return d.ResumeKey
+	}
+	return d.URL
 }
