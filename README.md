@@ -61,8 +61,9 @@ tork update --check   # only report whether a newer release exists
 tork update --force   # rebuild the latest release even if already current
 ```
 
-`tork update` asks the Go module system for the newest tagged release, builds
-it from source with `go install` (so the source is verified against
+`tork update` asks the Go module system for the newest tagged release of
+`github.com/kaanemec/tork-w-debrid` (this fork, never upstream; while the fork
+has no tags, that is the newest commit on `main`), builds it from source with `go install` (so the source is verified against
 sum.golang.org), and swaps the new binary in for the running one. Every
 download, cache, and intermediate file lives in one temporary directory that
 is removed afterwards. It needs Go 1.26.10+ on `PATH`. Homebrew, AUR, and Nix

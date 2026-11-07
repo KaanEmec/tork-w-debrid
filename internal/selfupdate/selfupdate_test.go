@@ -11,6 +11,25 @@ import (
 	"testing"
 )
 
+// TestModuleMatchesGoMod keeps tork update pointed at the module this source
+// tree builds, so an upstream merge or a rename cannot leave it fetching
+// another repository.
+func TestModuleMatchesGoMod(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if path, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			if path = strings.Trim(strings.TrimSpace(path), `"`); path != Module {
+				t.Fatalf("selfupdate.Module = %q, but go.mod declares %q", Module, path)
+			}
+			return
+		}
+	}
+	t.Fatal("go.mod has no module line")
+}
+
 func TestIsNewer(t *testing.T) {
 	cases := []struct {
 		current, latest string
@@ -27,6 +46,10 @@ func TestIsNewer(t *testing.T) {
 		{"v1.0.0", "v1.1.0-rc1", true},
 		{"v0.5.1-0.20261026131709-7f7502a63470", "v0.5.0", false}, // pseudo-version past the tag
 		{"v0.5.0+dirty", "v0.5.0", false},
+		// The fork has no tags yet, so @latest is a pseudo-version of main.
+		{"v0.0.0-20261107175310-bf3a10494afe", "v0.0.0-20261110090000-0123456789ab", true},
+		{"v0.0.0-20261107175310-bf3a10494afe", "v0.0.0-20261107175310-bf3a10494afe", false},
+		{"v0.0.0-20261110090000-0123456789ab", "v0.0.0-20261107175310-bf3a10494afe", false},
 		{"dev", "v0.5.0", true},
 		{"", "v0.5.0", true},
 		{"v0.4.1", "garbage", false},
