@@ -140,16 +140,15 @@ func TestDownloadsDashboardShowsTransferFactsAndFits(t *testing.T) {
 	a.refreshDownloadItems()
 	view := a.viewDownloads()
 	for _, want := range []string{
-		"queue", "1 total", "1 active", "25.0%", "12.0 MiB/s", "ETA 4m",
-		"selected", "save", "/downloads/linux.iso", "info", "torrent",
-		"peers 8/21", "5 seeders", "7 trackers", "DHT on", "actions",
+		"downloads", "↓ 12.0 MiB/s", "A very useful Linux image", "25%", "12.0 MiB/s · 4m00s",
+		"/downloads/linux.iso", "peers 8/21", "5 seeders",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("dashboard omits %q", want)
 		}
 	}
-	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
-		t.Error("selected download is not presented as a detail card")
+	if strings.Contains(view, "╭") || strings.Contains(view, "╰") {
+		t.Error("the detail card's border is gone in Nightglass")
 	}
 	assertRenderFits(t, view, a.width)
 
@@ -231,24 +230,6 @@ func TestClipboardSequenceCopiesFullText(t *testing.T) {
 	want := "\x1b]52;c;L2hvbWUvY2F0L0Rvd25sb2Fkcy9pbWFnZS5pc28=\x07"
 	if got != want {
 		t.Fatalf("clipboard sequence = %q, want %q", got, want)
-	}
-}
-
-func TestOverlayBottomRightKeepsLeftContent(t *testing.T) {
-	base := strings.Join([]string{"aa", "bb", "cc", "dd", "ee"}, "\n")
-	got := strings.Split(overlayBottomRight(base, "XX\nYY", 8), "\n")
-
-	if len(got) != 5 {
-		t.Fatalf("line count = %d, want 5", len(got))
-	}
-	if got[0] != "aa" || got[1] != "bb" || got[2] != "cc" {
-		t.Fatalf("untouched lines changed: %q", got)
-	}
-	if !strings.HasPrefix(got[3], "dd") || !strings.HasSuffix(got[3], "XX") {
-		t.Fatalf("toast row 1 = %q, want left content kept and XX right-aligned", got[3])
-	}
-	if !strings.HasPrefix(got[4], "ee") || !strings.HasSuffix(got[4], "YY") {
-		t.Fatalf("toast row 2 = %q, want left content kept and YY right-aligned", got[4])
 	}
 }
 

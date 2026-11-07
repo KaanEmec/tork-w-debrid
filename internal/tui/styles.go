@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -11,53 +10,36 @@ import (
 	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
-// Palette - a restrained, cozy dark theme: one soft green accent, layered
-// grays, and calm semantic colors. Green for the app's own voice; amber/rose
-// reserved for caution/alarm so signal never blends into the accent.
+// Styles are drawn from the Nightglass tokens in theme.go. The older names
+// stay as aliases so the screens keep reading naturally.
 var (
-	colBrand  = lipgloss.AdaptiveColor{Light: "28", Dark: "114"} // soft green - the accent
-	colBrand2 = lipgloss.AdaptiveColor{Light: "29", Dark: "108"} // sage green - secondary
-	colFg     = lipgloss.AdaptiveColor{Light: "234", Dark: "253"}
-	colText   = lipgloss.AdaptiveColor{Light: "238", Dark: "250"}
-	colMuted  = lipgloss.AdaptiveColor{Light: "242", Dark: "245"}
-	colFaint  = lipgloss.AdaptiveColor{Light: "240", Dark: "240"}
-	colBorder = lipgloss.AdaptiveColor{Light: "244", Dark: "238"}
-	colSel    = lipgloss.AdaptiveColor{Light: "153", Dark: "236"} // selection background
-	colGreen  = lipgloss.AdaptiveColor{Light: "28", Dark: "114"}  // seeders / healthy
-	colAmber  = lipgloss.AdaptiveColor{Light: "130", Dark: "179"} // caution
-	colRose   = lipgloss.AdaptiveColor{Light: "124", Dark: "174"}
-	colBlue   = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
-	colViolet = lipgloss.AdaptiveColor{Light: "91", Dark: "176"}
-)
-
-var (
-	styleBrand = lipgloss.NewStyle().Bold(true).Foreground(colBrand)
-	styleTitle = lipgloss.NewStyle().Bold(true).Foreground(colBrand)
+	styleBrand = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	styleTitle = lipgloss.NewStyle().Bold(true).Foreground(colFg)
 	styleFg    = lipgloss.NewStyle().Foreground(colFg)
+	styleText  = lipgloss.NewStyle().Foreground(colText)
 	styleDim   = lipgloss.NewStyle().Foreground(colMuted)
-	styleFaint = lipgloss.NewStyle().Foreground(colFaint)
-	styleRule  = lipgloss.NewStyle().Foreground(colBorder)
+	styleFaint = lipgloss.NewStyle().Foreground(colFaint) // decoration only, never words
+	styleRule  = lipgloss.NewStyle().Foreground(colLine)
 
-	styleSelected = lipgloss.NewStyle().Background(colSel).Foreground(colFg).Bold(true)
-	styleSelBar   = lipgloss.NewStyle().Foreground(colBrand)
+	styleSelected = lipgloss.NewStyle().Background(colRaised).Foreground(colFg).Bold(true)
+	styleSelBar   = lipgloss.NewStyle().Foreground(colAccent)
 
-	styleSeeders  = lipgloss.NewStyle().Foreground(colGreen)
-	styleLeechers = lipgloss.NewStyle().Foreground(colRose)
+	styleSeeders  = lipgloss.NewStyle().Foreground(colText)
+	styleLeechers = lipgloss.NewStyle().Foreground(colMuted)
 	styleErr      = lipgloss.NewStyle().Foreground(colRose).Bold(true)
-	styleOK       = lipgloss.NewStyle().Foreground(colGreen)
-	styleMatch    = lipgloss.NewStyle().Foreground(colBrand).Bold(true)
-	styleBest     = lipgloss.NewStyle().Foreground(colAmber).Bold(true) // best source - gold, distinct from the green
-	styleStateTag = lipgloss.NewStyle().Foreground(colBlue)
-	styleHelp     = lipgloss.NewStyle().Foreground(colFaint)
+	styleOK       = lipgloss.NewStyle().Foreground(colAccent)
+	styleMatch    = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	styleBest     = lipgloss.NewStyle().Foreground(colAmber).Bold(true) // ★ best and caution
+	styleWarn     = lipgloss.NewStyle().Foreground(colAmber)
+	styleSeeding  = lipgloss.NewStyle().Foreground(colSky)
+	styleStateTag = lipgloss.NewStyle().Foreground(colMuted)
 
-	styleKey   = lipgloss.NewStyle().Foreground(colBrand2)
+	styleKey   = lipgloss.NewStyle().Foreground(colAccent)
 	styleKeyLb = lipgloss.NewStyle().Foreground(colMuted)
-
-	styleYankBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colBrand).Padding(0, 2)
 )
 
 var (
-	styleHealthGood = lipgloss.NewStyle().Foreground(colGreen)
+	styleHealthGood = lipgloss.NewStyle().Foreground(colAccent)
 	styleHealthMid  = lipgloss.NewStyle().Foreground(colAmber)
 	styleHealthBad  = lipgloss.NewStyle().Foreground(colRose)
 )
@@ -75,21 +57,10 @@ func healthDot(seeders int) string {
 	return styleFaint.Render("○")
 }
 
-var providerStyles = map[string]lipgloss.Style{
-	"knaben":     lipgloss.NewStyle().Foreground(colBrand),
-	"yts":        lipgloss.NewStyle().Foreground(colGreen),
-	"nyaa":       lipgloss.NewStyle().Foreground(colViolet),
-	"tpb-movies": lipgloss.NewStyle().Foreground(colBrand2),
-	"tpb-tv":     lipgloss.NewStyle().Foreground(colBrand2),
-	"1337x":      lipgloss.NewStyle().Foreground(colRose),
-	"eztv":       lipgloss.NewStyle().Foreground(colBlue),
-}
-
+// providerTag renders a provider name. Providers used to carry their own
+// colours; colour now carries meaning, so every name renders in text.
 func providerTag(name string) string {
-	if s, ok := providerStyles[name]; ok {
-		return s.Render(name)
-	}
-	return lipgloss.NewStyle().Foreground(colMuted).Render(name)
+	return styleText.Render(name)
 }
 
 // providerBracket renders a provider as a small tag: [knaben].
@@ -118,41 +89,7 @@ func mergeSuffix(res provider.Result, plain bool) string {
 	if len(res.AlsoOn) == 0 {
 		return ""
 	}
-	return colorize(plain, styleFaint, fmt.Sprintf("+%d", len(res.AlsoOn)))
-}
-
-// torkLogo is a clean, flat half-block wordmark - minimal and calm, in the
-// spirit of a modern CLI rather than a heavy retro marquee.
-var torkLogo = []string{
-	`▀█▀ █▀█ █▀█ █▄▀`,
-	` █  █▄█ █▀▄ █▀▄`,
-}
-
-// logoGradient tints the wordmark top-to-bottom: a soft wash from pale mint
-// down through sage to a deep forest green, so the banner glows rather than
-// shouts - minimal, but cozy.
-var logoGradient = []lipgloss.TerminalColor{
-	lipgloss.AdaptiveColor{Light: "22", Dark: "157"},
-	lipgloss.AdaptiveColor{Light: "28", Dark: "151"},
-	lipgloss.AdaptiveColor{Light: "29", Dark: "114"},
-	lipgloss.AdaptiveColor{Light: "35", Dark: "108"},
-	lipgloss.AdaptiveColor{Light: "64", Dark: "72"},
-	lipgloss.AdaptiveColor{Light: "65", Dark: "65"},
-}
-
-// renderLogo paints torkLogo top-to-bottom, spreading the gradient evenly
-// across however many rows the wordmark has.
-func renderLogo() string {
-	n := len(torkLogo)
-	lines := make([]string, n)
-	for i, l := range torkLogo {
-		idx := 0
-		if n > 1 {
-			idx = i * (len(logoGradient) - 1) / (n - 1)
-		}
-		lines[i] = lipgloss.NewStyle().Bold(true).Foreground(logoGradient[idx]).Render(l)
-	}
-	return strings.Join(lines, "\n")
+	return colorize(plain, styleDim, fmt.Sprintf("+%d", len(res.AlsoOn)))
 }
 
 func humanBytes(n int64) string {

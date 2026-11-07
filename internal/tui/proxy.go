@@ -104,17 +104,17 @@ func (a *App) hasActiveTransfers() bool {
 func (a *App) proxyStatusTail() string {
 	switch a.proxy.state {
 	case proxyBadgeUnverified:
-		return styleFaint.Render("SOCKS strict · unverified")
+		return styleDim.Render("SOCKS strict · unverified")
 	case proxyBadgeTor:
-		return styleBrand.Render("((o)) Tor strict")
+		return styleDim.Render("((o)) Tor strict")
 	case proxyBadgeSOCKS:
-		return styleBrand.Render("SOCKS strict")
+		return styleDim.Render("SOCKS strict")
 	case proxyBadgeRetrying:
-		return styleBest.Render("SOCKS strict · retrying")
+		return styleWarn.Render("SOCKS strict · retrying")
 	case proxyBadgeUnreachable:
 		return styleErr.Render("⚠ PROXY UNREACHABLE · strict mode remains on")
 	case proxyBadgeUnavailable:
-		return styleBest.Render("SOCKS strict · check unavailable")
+		return styleWarn.Render("SOCKS strict · check unavailable")
 	default:
 		return ""
 	}

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // How long a toast sits on screen. A confirmation of something the user just
@@ -15,14 +14,15 @@ const (
 	toastLong  = 3 * time.Second
 )
 
-// toastTone picks the accent: calm green for "that worked", amber for a result
-// that deserves a second look. Errors are not toasts - they take over the
-// footer, where they stay put long enough to act on.
+// toastTone picks the colour: accent for "that worked", amber for a result
+// that deserves a second look, lavender for Real-Debrid news. Errors are not
+// toasts - they take over the footer, where they stay put long enough to act on.
 type toastTone int
 
 const (
 	toastOK toastTone = iota
 	toastWarn
+	toastRoute // Real-Debrid messages (J4.3), drawn in lavender
 )
 
 // toastState is the app's single transient-confirmation slot. Yanks, finished
@@ -32,6 +32,7 @@ type toastState struct {
 	text string
 	tone toastTone
 	gen  int // invalidates stale clear timers when toasts overlap
+	born int // frame the toast appeared on, for its fade-in
 }
 
 // showToast replaces whatever is on screen and returns the timer that clears
@@ -41,16 +42,27 @@ func (a *App) showToast(text string, tone toastTone, dwell time.Duration) tea.Cm
 	a.toast.text = text
 	a.toast.tone = tone
 	a.toast.gen++
+	a.toast.born = a.motion.frame
 	return clearToastCmd(a.toast.gen, dwell)
 }
 
-func toastBox(t toastState) string {
-	color, textStyle := colBrand, styleOK
-	if t.tone == toastWarn {
-		color, textStyle = colAmber, styleBest
+// toastLine is the one-line toast drawn just above the footer, fading in over
+// three frames. It replaces the old bottom-right box, so a toast never covers
+// content: the body gives up one line while it shows.
+func (a *App) toastLine(width int) string {
+	t := a.toast
+	st, mark := styleOK, "✓ "
+	switch t.tone {
+	case toastWarn:
+		st, mark = styleWarn, "! "
+	case toastRoute:
+		st, mark = styleRoute, glyphs.cloud+" "
 	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(color).Padding(0, 2)
-	return box.Render(textStyle.Render(t.text))
+	text := t.text
+	if !strings.HasPrefix(text, mark) {
+		text = mark + text
+	}
+	return truncate(fadeStyle(a.age(t.born), st).Render(text), width)
 }
 
 // queuedToast names what just started, so a download that no longer yanks the

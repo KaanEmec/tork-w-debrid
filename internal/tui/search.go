@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -12,18 +13,35 @@ import (
 	"github.com/kaanemec/tork-w-debrid/internal/intake"
 )
 
-// homeDest is a destination on the front-page menu.
+// homeDest is a destination on the front-page menu. The latest results are
+// not on it: F2 goes back there.
 type homeDest struct {
-	name   string
-	screen screen
+	name     string
+	screen   screen
+	settings bool // opens Settings rather than a screen of its own
 }
 
 func (a *App) homeDestinations() []homeDest {
-	menu := []homeDest{{"downloads", screenDownloads}, {"linux isos", screenISOs}, {"sources", screenSources}}
-	if a.results.query != "" {
-		menu = append(menu, homeDest{"back to results", screenResults})
+	return []homeDest{
+		{name: "downloads", screen: screenDownloads},
+		{name: "linux isos", screen: screenISOs},
+		{name: "sources", screen: screenSources},
+		{name: "settings", settings: true},
 	}
-	return menu
+}
+
+// openSettings opens Settings (F5). The settings screen lands with the
+// settings jobs (J5.1, J8.7); until then the menu row says so.
+func (a *App) openSettings() tea.Cmd {
+	return a.showToast("settings are coming soon", toastWarn, toastQuick)
+}
+
+// openHomeDest acts on a front-page menu row.
+func (a *App) openHomeDest(d homeDest) tea.Cmd {
+	if d.settings {
+		return a.openSettings()
+	}
+	return a.navigate(d.screen)
 }
 
 // Tab moves through the controls on home; arrows work the same way.
@@ -57,14 +75,18 @@ type searchModel struct {
 
 func newSearchModel() searchModel {
 	ti := textinput.New()
-	ti.Placeholder = "search or paste a torrent link"
+	// The leading space carries the block cursor on an empty field, so the
+	// placeholder reads "█ search or paste a torrent link".
+	ti.Placeholder = " search or paste a torrent link"
 	ti.CharLimit = 4096 // tracker-rich magnets and long local paths are valid inputs
 	ti.Width = 50
-	ti.Prompt = "❯ "
+	ti.Prompt = glyphs.prompt + " "
 	ti.PromptStyle = styleBrand
 	ti.TextStyle = styleFg
-	ti.PlaceholderStyle = styleFaint
+	ti.PlaceholderStyle = styleDim
 	ti.Cursor.Style = styleBrand
+	// The frame clock blinks the cursor (J8.3), not the text input's own timer.
+	ti.Cursor.SetMode(cursor.CursorStatic)
 	return searchModel{input: ti}
 }
 
@@ -111,7 +133,7 @@ func (a *App) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "enter":
 		if a.search.menuFocused {
-			return a, a.navigate(a.homeDestinations()[a.search.menu].screen)
+			return a, a.openHomeDest(a.homeDestinations()[a.search.menu])
 		}
 		if query := strings.TrimSpace(a.search.input.Value()); query != "" {
 			target, detected, err := intake.DetectHome(query)
@@ -188,7 +210,9 @@ func (a *App) startSearch(query string) tea.Cmd {
 	prefs := a.results.pickPrefs
 	category, hideDead, sort := a.results.category, a.results.hideDead, a.results.sort
 	a.results = newResultsModel(a.cfg.Ranking)
-	a.results.browser = true
+	// Results open on the grouped top picks (J8.5); v shows every result and
+	// c the category browser.
+	a.results.curated = true
 	a.results.category, a.results.hideDead, a.results.sort = category, hideDead, sort
 	a.results.pickPrefs = prefs
 	a.results.searchID = a.searchSeq
@@ -202,78 +226,99 @@ func (a *App) startSearch(query string) tea.Cmd {
 	return tea.Batch(waitForResult(a.searchSeq, resultCh), waitForStatus(a.searchSeq, statusCh))
 }
 
-// viewSearch is the front page: a centered hero (wordmark, tagline, search
-// field, and a small destination menu) above a pinned status bar.
+// viewSearch is the front page: the logo with the cat on the "w", the slogan,
+// the search field (the screen's one panel) and four menu rows, above the
+// footer. Small terminals get a one-line title instead of the logo.
 func (a *App) viewSearch() string {
 	th := a.termHeight()
+	frame := a.vframe()
 
-	fieldW := max(8, min(52, a.contentWidth()))
+	fieldW := max(8, min(56, a.contentWidth()))
 	a.search.input.Width = max(1, fieldW-6)
-	border := colBrand
+	a.setCursorBlink(frame)
+	border := colAccent
 	if a.search.menuFocused {
-		border = colBorder
+		border = colLine
 	}
 	field := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(border).
 		Padding(0, 1).
-		Width(max(1, fieldW-4)).
+		Width(max(1, fieldW-2)).
 		Render(a.search.input.View())
 
-	var hero string
-	if th < 25 || a.contentWidth() < 40 {
-		hero = lipgloss.JoinVertical(lipgloss.Center,
-			styleBrand.Render("tork  /ᐠ｡ꞈ｡ᐟ\\"),
-			field,
-			"",
-			a.homeMenuView(),
-		)
+	roomy := th >= 25 // 80x24 drops the slogan and the menu notes
+	var parts []string
+	if a.contentWidth() < 60 || a.bodyHeight() < 13 {
+		parts = []string{brandMark(), "", field, "", a.homeMenuView(fieldW, roomy)}
 	} else {
-		hero = lipgloss.JoinVertical(lipgloss.Center,
-			renderCat(smallCat(moodHappy), moodHappy),
-			"",
-			renderLogo(),
-			"",
-			styleDim.Render("you name it, the cat fetches it"),
-			"",
-			field,
-			"",
-			a.homeMenuView(),
-		)
+		parts = []string{homeLogo(frame), ""}
+		if roomy {
+			parts = append(parts, styleDim.Render(homeSlogan), "")
+		}
+		parts = append(parts, field, "", a.homeMenuView(fieldW, roomy))
 	}
-	hero = fitBlockWidth(hero, a.contentWidth())
+	hero := fitBlockWidth(lipgloss.JoinVertical(lipgloss.Center, parts...), a.contentWidth())
 	body := lipgloss.Place(a.contentWidth(), a.bodyHeight(), lipgloss.Center, lipgloss.Center, hero)
 	return a.chrome("home", body, a.keyStrip(a.helpBudget(a.contentWidth())))
 }
 
-// homeMenuView renders the small destination list under the search field.
-func (a *App) homeMenuView() string {
-	resultDesc := "your latest search"
-	if a.results.query != "" {
-		resultDesc = a.results.query
+const homeSlogan = "you name it, the cat fetches it"
+
+// setCursorBlink shows the field's block cursor for half of every second.
+func (a *App) setCursorBlink(frame int) {
+	mode := cursor.CursorStatic
+	if !cursorVisible(frame) {
+		mode = cursor.CursorHide
 	}
-	descs := []string{a.downloadsSummary(), "official images", a.sourcesSummary(), resultDesc}
+	if a.search.input.Cursor.Mode() != mode {
+		a.search.input.Cursor.SetMode(mode)
+	}
+}
+
+// homeMenuView renders the destination rows under the search field, as wide
+// as the field so the block stays aligned.
+func (a *App) homeMenuView(width int, notes bool) string {
+	descs := []string{a.downloadsSummary(), styleDim.Render("official images"), styleDim.Render(a.sourcesSummary()), styleDim.Render("F5")}
 	menu := a.homeDestinations()
 	rows := make([]string, len(menu))
 	for i, d := range menu {
-		name := padRight(d.name, 16)
-		if a.search.menuFocused && i == a.search.menu {
-			rows[i] = styleBrand.Render("→ ") + styleFg.Bold(true).Render(name) + " " + styleDim.Render(descs[i])
-		} else {
-			rows[i] = styleFaint.Render("  ") + styleDim.Render(name) + " " + styleFaint.Render(descs[i])
+		name := padRight(d.name, 17)
+		desc := ""
+		if notes {
+			desc = descs[i]
 		}
+		if a.search.menuFocused && i == a.search.menu {
+			rows[i] = styleSelBar.Render(glyphs.cursor+" ") + styleFg.Bold(true).Render(name) + desc
+		} else {
+			rows[i] = "  " + styleText.Render(name) + desc
+		}
+		rows[i] = padRight(truncate(rows[i], width), width)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
+// downloadsSummary is the downloads row's note: "2 active · 1 on Real-Debrid"
+// with the Real-Debrid part in lavender.
 func (a *App) downloadsSummary() string {
-	switch n := len(a.downloadItems()); n {
+	m := a.downloads.metrics
+	if !a.downloads.itemsReady {
+		m = summarizeDownloads(a.downloadItems())
+	}
+	if m.Active > 0 || m.Cloud > 0 {
+		out := styleDim.Render(fmt.Sprintf("%d active", m.Active))
+		if m.Cloud > 0 {
+			out += styleDim.Render(" · ") + styleRoute.Render(fmt.Sprintf("%d on Real-Debrid", m.Cloud))
+		}
+		return out
+	}
+	switch m.Total {
 	case 0:
-		return "nothing downloading yet"
+		return styleDim.Render("nothing downloading yet")
 	case 1:
-		return "1 saved download"
+		return styleDim.Render("1 saved download")
 	default:
-		return fmt.Sprintf("%d saved downloads", n)
+		return styleDim.Render(fmt.Sprintf("%d saved downloads", m.Total))
 	}
 }
 
@@ -287,5 +332,5 @@ func (a *App) sourcesSummary() string {
 			enabled++
 		}
 	}
-	return fmt.Sprintf("%d enabled · add more indexes", enabled)
+	return fmt.Sprintf("%d enabled", enabled)
 }

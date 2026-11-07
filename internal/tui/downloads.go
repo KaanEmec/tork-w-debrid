@@ -15,7 +15,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -86,12 +85,31 @@ type downloadItem struct {
 	Seed           bool
 	Live           bool
 	EntryIndex     int
+
+	// Real-Debrid and multi-connection fields. The debrid (J4.4) and
+	// segmented-download (J7.6) jobs fill these; the view only draws them.
+	Route         downloadRoute
+	CloudProgress float64 // Real-Debrid's own progress while Route is routeCloud
+	CloudNote     string  // "Real-Debrid 43 % · 12 MB/s · 8 seeders"
+	ViaDebrid     bool    // the file came (or comes) through Real-Debrid
+	Segments      []segmentCell
+	ConnSpeeds    []float64 // bytes/s per connection, for the segment line
 }
+
+// downloadRoute says where an item's bytes are right now.
+type downloadRoute int
+
+const (
+	routeLocal    downloadRoute = iota // tork's own transfer (torrent or direct)
+	routeCloud                         // Real-Debrid is fetching it (cloud phase)
+	routeStarting                      // the 5-second ready check (D4)
+)
 
 // downloadMetrics is computed once with the cached list projection, then used
 // by the header, overview and detail panel without rescanning on every View.
 type downloadMetrics struct {
 	Total, Active, Paused, Done, Missing, Seeding, Verifying int
+	Cloud, Starting                                          int
 	BytesCompleted, Length, ActiveRemaining                  int64
 	SpeedBps                                                 float64
 	PeersActive, PeersTotal, Seeders                         int
@@ -388,24 +406,6 @@ func desktopHandoff(verb, path string, mustExist bool, command func(string) (str
 	}
 }
 
-// overlayBottomRight splices toast into base's bottom-right corner, keeping
-// whatever styled text sits to its left on those rows.
-func overlayBottomRight(base, toast string, width int) string {
-	baseLines := strings.Split(base, "\n")
-	toastLines := strings.Split(toast, "\n")
-	top := len(baseLines) - len(toastLines)
-	if top < 0 {
-		return base
-	}
-	for i, tl := range toastLines {
-		idx := top + i
-		keep := max(0, width-lipgloss.Width(tl)-1)
-		left := ansi.Truncate(baseLines[idx], keep, "")
-		baseLines[idx] = left + strings.Repeat(" ", max(1, keep-lipgloss.Width(left)+1)) + tl
-	}
-	return strings.Join(baseLines, "\n")
-}
-
 func newPathPrompt(action pathAction, it downloadItem, prompt, value string) pathPrompt {
 	ti := textinput.New()
 	ti.Prompt = prompt
@@ -610,6 +610,14 @@ func summarizeDownloads(items []downloadItem) downloadMetrics {
 		m.PeersActive += it.PeersActive
 		m.PeersTotal += it.PeersTotal
 		m.Seeders += it.Seeders
+		switch it.Route {
+		case routeCloud:
+			m.Cloud++
+			continue
+		case routeStarting:
+			m.Starting++
+			continue
+		}
 		switch it.State {
 		case engine.StateDownloading, engine.StateFetchingMeta, engine.StatePreviewing:
 			m.Active++
@@ -1058,16 +1066,12 @@ func (a *App) viewDownloads() string {
 	d := &a.downloads
 	width := a.contentWidth()
 	items := a.downloadItems()
-	metrics := d.metrics
-	if !d.itemsReady {
-		metrics = summarizeDownloads(items)
-	}
 
 	if len(items) == 0 {
 		empty := lipgloss.JoinVertical(lipgloss.Center,
 			styleDim.Render(strings.Join(sleepingCat, "\n")),
 			"",
-			styleFaint.Render("the cat's napping - nothing downloading"),
+			styleDim.Render("the cat's napping - nothing downloading"),
 			"",
 			styleDim.Render("search for something, then press enter to preview it"),
 		)
@@ -1075,30 +1079,14 @@ func (a *App) viewDownloads() string {
 		return a.chrome("downloads", body, hints(hint("esc", "back"), hint("?", "keys")))
 	}
 
-	listRows := a.downloadListRows()
-	start, end := d.win.clamp(len(items), listRows)
-
-	var b strings.Builder
-	b.WriteString(a.downloadsOverview(metrics, width))
-	b.WriteString("\n")
-	section := ""
+	d.win.clamp(len(items), a.downloadListRows())
+	start, end := a.downloadWindow(items, width)
+	var lines []string
 	for i := start; i < end; i++ {
-		label := "Active & waiting"
-		if items[i].State == engine.StateDone || items[i].State == engine.StateSeeding {
-			label = "Completed & seeding"
+		if a.downloadSectionStart(items, i) {
+			lines = append(lines, "  "+styleDim.Render("done"))
 		}
-		if label != section {
-			b.WriteString(styleTitle.Render(label) + "\n")
-			section = label
-		}
-		b.WriteString(a.renderDownloadItem(items[i], i == d.win.cursor, width))
-		if i < end-1 {
-			b.WriteString("\n")
-		}
-	}
-
-	if detail := a.downloadDetail(items[d.win.cursor], width); detail != "" {
-		b.WriteString("\n\n" + detail)
+		lines = append(lines, a.renderDownloadItem(items[i], i == d.win.cursor, width)...)
 	}
 
 	help := a.keyStrip(a.helpBudget(width))
@@ -1112,48 +1100,282 @@ func (a *App) viewDownloads() string {
 	if d.prompt.action != pathActionNone {
 		help = d.prompt.input.View()
 	}
-	return a.chrome(a.downloadsContext(metrics), b.String(), help)
+	return a.chrome("downloads", strings.Join(lines, "\n"), help)
 }
 
-func (a *App) renderDownloadItem(it downloadItem, selected bool, width int) string {
-	marker := "  "
-	nameStyle := styleFg
-	if selected {
-		marker = styleSelBar.Render("▍ ")
-		nameStyle = styleBrand
-	}
-	badge := stateBadge(it.State)
-	kind := ""
-	if directDownload(it) && width >= 44 {
-		kind = styleFaint.Render("direct") + "  "
-	}
-	glyph := downloadStateGlyph(it.State) + " "
-	nameWidth := max(1, width-lipgloss.Width(marker)-lipgloss.Width(glyph)-lipgloss.Width(kind)-lipgloss.Width(badge)-2)
-	name := nameStyle.Render(truncate(it.Name, nameWidth))
-	line1 := marker + glyph + name
-	right := kind + badge
-	if gap := width - lipgloss.Width(line1) - lipgloss.Width(right); gap > 0 {
-		line1 += strings.Repeat(" ", gap) + right
-	} else {
-		line1 += " " + right
-	}
+// finishedDownload items take one line each under the muted "done" label.
+func finishedDownload(it downloadItem) bool {
+	return it.Route == routeLocal && (it.State == engine.StateDone || it.State == engine.StateSeeding)
+}
 
-	pct := fmt.Sprintf("%5.1f%%", it.Progress()*100)
-	activity := downloadRowActivity(it)
-	activityWidth := min(lipgloss.Width(activity), max(0, width/3))
-	if activityWidth > 0 {
-		activity = truncate(activity, activityWidth)
+// downloadSectionStart reports whether the "done" label goes above item i.
+func (a *App) downloadSectionStart(items []downloadItem, i int) bool {
+	return finishedDownload(items[i]) && (i == 0 || !finishedDownload(items[i-1]))
+}
+
+// downloadLines is how many lines item i takes, its section label included.
+func (a *App) downloadLines(items []downloadItem, i, width int) int {
+	n := 2
+	if finishedDownload(items[i]) {
+		n = 1
 	}
-	barWidth := width - 4 - lipgloss.Width(pct) - 1
-	if activity != "" {
-		barWidth -= lipgloss.Width(activity) + 2
+	if i == a.downloads.win.cursor && a.downloadDetailShown(items[i], width) {
+		n++
 	}
-	barWidth = max(4, min(44, barWidth))
-	line2 := "    " + progressRail(it.Progress(), barWidth) + " " + styleDim.Render(pct)
-	if activity != "" {
-		line2 += styleFaint.Render("  ") + activity
+	if a.downloadSectionStart(items, i) {
+		n++
 	}
-	return truncate(line1, width) + "\n" + truncate(line2, width)
+	return n
+}
+
+// downloadWindow picks the items that fit the body, keeping the cursor
+// visible. Items differ in height, so the window is measured in lines.
+func (a *App) downloadWindow(items []downloadItem, width int) (start, end int) {
+	d := &a.downloads
+	budget := a.bodyHeight()
+	if d.win.offset > d.win.cursor {
+		d.win.offset = d.win.cursor
+	}
+	for d.win.offset < d.win.cursor {
+		used := 0
+		for i := d.win.offset; i <= d.win.cursor; i++ {
+			used += a.downloadLines(items, i, width)
+		}
+		if used <= budget {
+			break
+		}
+		d.win.offset++
+	}
+	start, used := d.win.offset, 0
+	end = start
+	for end < len(items) {
+		h := a.downloadLines(items, end, width)
+		if used+h > budget && end > start {
+			break
+		}
+		used += h
+		end++
+	}
+	return start, end
+}
+
+// downloadRailWidth is 48 cells, 24 under 62 columns, and never wider than
+// the line can hold beside the indent and the fixed 6-cell percent.
+func downloadRailWidth(width int) int {
+	rail := 48
+	if width < 62 {
+		rail = 24
+	}
+	return max(4, min(rail, width-5-6))
+}
+
+// renderDownloadItem draws one item: line 1 is the cursor, the state glyph,
+// the name and the muted status on the right; line 2 is the rail and a fixed
+// 6-cell percent. Finished items are one line. The selected item adds its
+// detail line (the segment map for a multi-connection download).
+func (a *App) renderDownloadItem(it downloadItem, selected bool, width int) []string {
+	frame := a.vframe()
+	glyph := a.downloadGlyph(it, frame)
+	status := a.downloadStatus(it)
+	nameStyle := styleText
+	if selected {
+		nameStyle = styleFg.Bold(true)
+	}
+	inner := max(1, width-1) // the gutter cell
+	nameWidth := max(1, inner-lipgloss.Width(glyph)-2-lipgloss.Width(status)-2)
+	line1 := glyph + "  " + nameStyle.Render(truncate(it.Name, nameWidth))
+	if gap := inner - lipgloss.Width(line1) - lipgloss.Width(status); gap > 0 {
+		line1 += strings.Repeat(" ", gap) + status
+	} else {
+		line1 = truncate(line1+" "+status, inner)
+	}
+	lines := []string{line1}
+	if !finishedDownload(it) {
+		lines = append(lines, "    "+a.downloadRail(it, downloadRailWidth(width), frame))
+	}
+	if selected && a.downloadDetailShown(it, width) {
+		lines = append(lines, "    "+a.downloadDetailLine(it, inner-4))
+	}
+	for i, l := range lines {
+		l = truncate(l, inner)
+		if selected {
+			gutter := " "
+			if i == 0 {
+				gutter = styleSelBar.Background(colRaised).Render(glyphs.cursor)
+			} else {
+				gutter = styleSelected.Render(" ")
+			}
+			lines[i] = gutter + selectedRow(l, inner)
+		} else {
+			lines[i] = " " + l
+		}
+	}
+	return lines
+}
+
+// downloadRail is the progress line: rail plus a fixed 6-cell percent, so the
+// line never jitters as the number grows.
+func (a *App) downloadRail(it downloadItem, railW, frame int) string {
+	progress := it.Progress()
+	pct := padLeft(fmt.Sprintf("%d%%", int(progress*100)), 6)
+	var rail string
+	switch {
+	case it.Route == routeStarting:
+		return progressRailIn(0, railW, styleOK)
+	case it.Route == routeCloud:
+		progress = clampProgress(it.CloudProgress)
+		pct = padLeft(fmt.Sprintf("%d%%", int(progress*100)), 6)
+		rail = progressRailIn(progress, railW, styleRouteDim)
+	case it.State == engine.StatePaused:
+		rail = progressRailIn(progress, railW, styleDim)
+	case it.State == engine.StateMissing:
+		rail = progressRailIn(progress, railW, styleErr)
+	case it.State == engine.StateDownloading && it.SpeedBps > 0:
+		rail = shineRail(progress, railW, frame, styleOK)
+	default:
+		rail = progressRailIn(progress, railW, styleOK)
+	}
+	return rail + styleDim.Render(pct)
+}
+
+// downloadGlyph is the state glyph: ↓ downloading, ↑ seeding, ✓ done, Ⅱ
+// paused, ! missing, ☁ cloud phase, and the spinner for any wait.
+func (a *App) downloadGlyph(it downloadItem, frame int) string {
+	switch it.Route {
+	case routeCloud:
+		return cloudGlyph()
+	case routeStarting:
+		return spinnerGlyph(frame)
+	}
+	switch it.State {
+	case engine.StateFetchingMeta, engine.StatePreviewing:
+		return spinnerGlyph(frame)
+	}
+	return downloadStateGlyph(it.State)
+}
+
+// downloadStatus is the muted text on the right of line 1.
+func (a *App) downloadStatus(it downloadItem) string {
+	switch it.Route {
+	case routeCloud:
+		note := it.CloudNote
+		if note == "" {
+			note = fmt.Sprintf("Real-Debrid %d %%", int(clampProgress(it.CloudProgress)*100))
+		}
+		return cloudRowStyle().Render(note)
+	case routeStarting:
+		return styleDim.Render("starting")
+	}
+	if finishedDownload(it) {
+		parts := []string{}
+		if it.State == engine.StateSeeding {
+			parts = append(parts, "seeding")
+		}
+		if it.Length > 0 {
+			parts = append(parts, humanBytes(it.Length))
+		}
+		if showDownloadNote(it.Note) {
+			parts = append(parts, it.Note)
+		}
+		out := styleDim.Render(strings.Join(parts, " · "))
+		if it.ViaDebrid {
+			if len(parts) > 0 {
+				out += styleDim.Render(" · ")
+			}
+			out += styleRoute.Render("via Real-Debrid")
+		}
+		return out
+	}
+	return downloadRowActivity(it)
+}
+
+// downloadDetailShown reports whether the selected item gets its detail line.
+func (a *App) downloadDetailShown(it downloadItem, width int) bool {
+	return a.bodyHeight() >= 12 && width >= 44
+}
+
+// downloadDetailLine is the selected item's extra line: the segment map with
+// per-connection speeds for a multi-connection download, otherwise the save
+// path and transfer facts.
+func (a *App) downloadDetailLine(it downloadItem, width int) string {
+	if len(it.Segments) > 0 {
+		return segmentLine(it.Segments, it.ConnSpeeds, width)
+	}
+	info := []string{}
+	if directDownload(it) {
+		info = append(info, "direct")
+	}
+	if it.PeersTotal > 0 {
+		info = append(info, fmt.Sprintf("peers %d/%d", it.PeersActive, it.PeersTotal))
+	}
+	if it.Seeders > 0 && !finishedDownload(it) {
+		info = append(info, plural(it.Seeders, "seeder"))
+	}
+	if it.ProxyStrict {
+		info = append(info, "strict proxy")
+	}
+	path := it.DataPath
+	if path == "" {
+		path = it.DownloadDir
+	}
+	if path != "" {
+		info = append(info, path)
+	}
+	if len(info) == 0 {
+		info = append(info, downloadActionHint(it))
+	}
+	return styleDim.Render(truncate(strings.Join(info, " · "), width))
+}
+
+// segmentCell is one cell of the segment map.
+type segmentCell uint8
+
+const (
+	segmentTodo segmentCell = iota
+	segmentPart
+	segmentDone
+)
+
+// segmentMap draws "▕██▓▓░░▏": done in accent, in progress in dim accent, not
+// yet in faint.
+func segmentMap(cells []segmentCell) string {
+	var b strings.Builder
+	b.WriteString(styleFaint.Render(glyphs.segOpen))
+	for _, c := range cells {
+		switch c {
+		case segmentDone:
+			b.WriteString(styleOK.Render(glyphs.segDone))
+		case segmentPart:
+			b.WriteString(styleAccentDim.Render(glyphs.segPart))
+		default:
+			b.WriteString(styleFaint.Render(glyphs.segTodo))
+		}
+	}
+	b.WriteString(styleFaint.Render(glyphs.segClose))
+	return b.String()
+}
+
+// segmentLine is the segment map plus "4 connections · 6.1 · 5.9 · 6.0 · 0.4
+// MB/s", with any connection under a quarter of the median in amber.
+func segmentLine(cells []segmentCell, speeds []float64, width int) string {
+	line := segmentMap(cells)
+	if len(speeds) > 0 {
+		sorted := append([]float64(nil), speeds...)
+		sort.Float64s(sorted)
+		median := sorted[len(sorted)/2]
+		parts := make([]string, len(speeds))
+		for i, s := range speeds {
+			text := fmt.Sprintf("%.1f", s/1e6)
+			if median > 0 && s < median/4 {
+				parts[i] = styleWarn.Render(text)
+			} else {
+				parts[i] = styleDim.Render(text)
+			}
+		}
+		line += styleDim.Render(" "+plural(len(speeds), "connection")+" · ") +
+			strings.Join(parts, styleDim.Render(" · ")) + styleDim.Render(" MB/s")
+	}
+	return truncate(line, width)
 }
 
 func directDownload(it downloadItem) bool {
@@ -1165,15 +1387,15 @@ func downloadStateGlyph(s engine.TorrentState) string {
 	case engine.StateDownloading:
 		return styleOK.Render("↓")
 	case engine.StateSeeding:
-		return styleOK.Render("↑")
+		return styleSeeding.Render("↑")
 	case engine.StateDone:
 		return styleOK.Render("✓")
 	case engine.StatePaused:
-		return styleFaint.Render("Ⅱ")
+		return styleWarn.Render("Ⅱ")
 	case engine.StateMissing:
 		return styleErr.Render("!")
 	case engine.StateVerifying:
-		return styleBest.Render("◇")
+		return styleDim.Render("◇")
 	case engine.StateFetchingMeta, engine.StatePreviewing:
 		return styleDim.Render("…")
 	default:
@@ -1184,28 +1406,28 @@ func downloadStateGlyph(s engine.TorrentState) string {
 func downloadRowActivity(it downloadItem) string {
 	parts := make([]string, 0, 2)
 	if it.SpeedBps > 0 {
-		parts = append(parts, styleOK.Render("↓ "+humanSpeed(it.SpeedBps)))
+		parts = append(parts, humanSpeed(it.SpeedBps))
 	}
 	if it.ETA > 0 {
-		parts = append(parts, "ETA "+fmtETA(it.ETA))
+		parts = append(parts, fmtETA(it.ETA))
 	}
 	if len(parts) > 0 {
-		return strings.Join(parts, " · ")
+		return styleDim.Render(strings.Join(parts, " · "))
 	}
 	if showDownloadNote(it.Note) {
-		return styleFaint.Render(it.Note)
+		return styleDim.Render(it.Note)
 	}
 	switch it.State {
 	case engine.StateDone:
-		return styleOK.Render("ready")
+		return styleDim.Render("ready")
 	case engine.StateSeeding:
-		return styleOK.Render("complete · seeding")
+		return styleDim.Render("complete · seeding")
 	case engine.StatePaused:
-		return styleFaint.Render("paused")
+		return styleDim.Render("paused")
 	case engine.StateMissing:
 		return styleErr.Render("file missing")
 	case engine.StateVerifying:
-		return styleBest.Render("checking data")
+		return styleDim.Render("checking data")
 	case engine.StateFetchingMeta:
 		return styleDim.Render("fetching metadata")
 	default:
@@ -1225,10 +1447,12 @@ func (it downloadItem) Progress() float64 {
 
 func clampProgress(progress float64) float64 { return max(0, min(1, progress)) }
 
-func progressRail(progress float64, width int) string {
+// progressRailIn is a still progress rail: filled cells in fill, the rest
+// faint.
+func progressRailIn(progress float64, width int, fill lipgloss.Style) string {
 	width = max(1, width)
 	filled := int(clampProgress(progress)*float64(width) + 0.5)
-	return styleOK.Render(strings.Repeat("━", filled)) + styleRule.Render(strings.Repeat("─", width-filled))
+	return fill.Render(strings.Repeat(glyphs.filled, filled)) + styleFaint.Render(strings.Repeat(glyphs.empty, width-filled))
 }
 
 func showDownloadNote(note string) bool {
@@ -1238,106 +1462,6 @@ func showDownloadNote(note string) bool {
 	default:
 		return true
 	}
-}
-
-func (a *App) downloadsOverview(m downloadMetrics, width int) string {
-	counts := []string{fmt.Sprintf("%d total", m.Total)}
-	if m.Active > 0 {
-		counts = append(counts, styleOK.Render(fmt.Sprintf("%d active", m.Active)))
-	}
-	if m.Paused > 0 {
-		counts = append(counts, styleBest.Render(fmt.Sprintf("%d paused", m.Paused)))
-	}
-	if m.Done > 0 {
-		counts = append(counts, styleOK.Render(fmt.Sprintf("%d complete", m.Done)))
-	}
-	if m.Missing > 0 {
-		counts = append(counts, styleErr.Render(fmt.Sprintf("%d missing", m.Missing)))
-	}
-	left := styleTitle.Render("queue") + styleFaint.Render("  ") + strings.Join(counts, styleFaint.Render("  ·  "))
-	rightParts := []string{}
-	if m.SpeedBps > 0 {
-		rightParts = append(rightParts, styleOK.Render("↓ "+humanSpeed(m.SpeedBps)))
-	}
-	if eta := m.ETA(); eta > 0 {
-		rightParts = append(rightParts, styleDim.Render("ETA "+fmtETA(eta)))
-	}
-	line1 := joinDownloadEnds(left, strings.Join(rightParts, "  "), width)
-
-	if a.bodyHeight() < 10 {
-		return truncate(line1, width) + "\n" + rule(width)
-	}
-	percent := fmt.Sprintf("%5.1f%%", m.Progress()*100)
-	sizes := ""
-	if m.Length > 0 && width >= 62 {
-		sizes = humanBytes(m.BytesCompleted) + " / " + humanBytes(m.Length)
-	}
-	railWidth := width - lipgloss.Width(percent) - 1
-	if sizes != "" {
-		railWidth -= lipgloss.Width(sizes) + 3
-	}
-	railWidth = max(4, min(56, railWidth))
-	line2 := progressRail(m.Progress(), railWidth) + " " + styleDim.Render(percent)
-	if sizes != "" {
-		line2 += styleFaint.Render("   " + sizes)
-	}
-
-	return truncate(line1, width) + "\n" + truncate(line2, width) + "\n" + rule(width)
-}
-
-func joinDownloadEnds(left, right string, width int) string {
-	if right == "" || lipgloss.Width(left)+lipgloss.Width(right)+2 > width {
-		return truncate(left, width)
-	}
-	return left + strings.Repeat(" ", width-lipgloss.Width(left)-lipgloss.Width(right)) + right
-}
-
-func (a *App) downloadDetail(it downloadItem, width int) string {
-	if a.bodyHeight() < 20 || width < 44 {
-		return ""
-	}
-	path := it.DataPath
-	if path == "" {
-		path = "(unknown path)"
-	}
-	mode := "torrent"
-	if directDownload(it) {
-		mode = "direct"
-	}
-	info := []string{mode}
-	if it.Length > 0 {
-		info = append(info, humanBytes(it.Length))
-	}
-	if it.PeersTotal > 0 {
-		info = append(info, fmt.Sprintf("peers %d/%d", it.PeersActive, it.PeersTotal))
-	}
-	if it.Seeders > 0 {
-		info = append(info, plural(it.Seeders, "seeder"))
-	}
-	if it.Trackers > 0 {
-		info = append(info, plural(it.Trackers, "tracker"))
-	}
-	if it.ProxyStrict {
-		info = append(info, "strict proxy")
-	} else if it.DHTEnabled && mode == "torrent" {
-		info = append(info, "DHT on")
-	}
-	actions := downloadActionHint(it)
-	innerWidth := max(1, width-4)
-	headerRight := stateBadge(it.State)
-	headerLeft := styleBrand.Render("selected") + styleFaint.Render("  ") + styleFg.Bold(true).Render(truncate(it.Name, max(1, innerWidth-lipgloss.Width(headerRight)-2)))
-	lines := []string{
-		joinDownloadEnds(headerLeft, headerRight, innerWidth),
-		styleFaint.Render("save     ") + styleDim.Render(truncate(path, max(1, innerWidth-9))),
-		styleFaint.Render("info     ") + styleDim.Render(truncate(strings.Join(info, " · "), max(1, innerWidth-9))),
-		styleFaint.Render("actions  ") + styleDim.Render(truncate(actions, max(1, innerWidth-9))),
-	}
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colBorder).
-		Padding(0, 1).
-		Width(max(1, width-4)).
-		Render(strings.Join(lines, "\n"))
 }
 
 func downloadActionHint(it downloadItem) string {
@@ -1358,75 +1482,75 @@ func downloadActionHint(it downloadItem) string {
 	}
 }
 
+// downloadListRows is the paging step for the list: roughly how many
+// two-line items fit the body.
 func (a *App) downloadListRows() int {
-	body := a.bodyHeight()
-	overviewLines := 2
-	if body >= 10 {
-		overviewLines = 3
-	}
-	detailLines := 0
-	if body >= 20 && a.contentWidth() >= 44 {
-		detailLines = 7 // one breathing line plus the six-line bordered card
-	}
-	return max(1, (body-overviewLines-detailLines-2)/2)
+	return max(1, (a.bodyHeight()-1)/2)
 }
 
-// downloadsContext summarises the list in the header: what is moving, what is
-// waiting on you, and what is finished, so the shape of the queue is readable
-// without counting rows.
-func (a *App) downloadsContext(m downloadMetrics) string {
-	if m.Active == 0 && m.Paused == 0 && m.Missing == 0 && m.Done > 0 {
-		return "downloads · all done"
+// downloadsAnimating: only the shine on active rails and the spinner of
+// waiting items move on the downloads screen.
+func (a *App) downloadsAnimating() bool {
+	for _, it := range a.downloadItems() {
+		if it.Route == routeStarting {
+			return true
+		}
+		if it.Route == routeCloud {
+			continue
+		}
+		switch it.State {
+		case engine.StateFetchingMeta, engine.StatePreviewing:
+			return true
+		case engine.StateDownloading:
+			if it.SpeedBps > 0 {
+				return true
+			}
+		}
 	}
-	parts := []string{}
-	if m.Active > 0 {
-		parts = append(parts, fmt.Sprintf("%d active", m.Active))
+	return false
+}
+
+// downloadsFact is the downloads header's right side: "↓ 18.4 MB/s · ☁ 1".
+func (a *App) downloadsFact() string {
+	m := a.downloads.metrics
+	if !a.downloads.itemsReady {
+		m = summarizeDownloads(a.downloadItems())
 	}
-	if m.Paused > 0 {
-		parts = append(parts, fmt.Sprintf("%d paused", m.Paused))
+	var parts []string
+	if m.Active > 0 || m.SpeedBps > 0 {
+		parts = append(parts, styleOK.Render("↓ "+humanSpeed(m.SpeedBps)))
 	}
-	if m.Missing > 0 {
-		parts = append(parts, fmt.Sprintf("%d missing", m.Missing))
-	}
-	if m.Done > 0 {
-		parts = append(parts, fmt.Sprintf("%d done", m.Done))
+	if m.Cloud > 0 {
+		parts = append(parts, styleRoute.Render(fmt.Sprintf("%s %d", glyphs.cloud, m.Cloud)))
 	}
 	if len(parts) == 0 {
-		return "downloads"
+		counts := []string{}
+		if m.Paused > 0 {
+			counts = append(counts, fmt.Sprintf("%d paused", m.Paused))
+		}
+		if m.Missing > 0 {
+			counts = append(counts, fmt.Sprintf("%d missing", m.Missing))
+		}
+		if m.Done > 0 {
+			counts = append(counts, fmt.Sprintf("%d done", m.Done))
+		}
+		return styleDim.Render(strings.Join(counts, " · "))
 	}
-	return "downloads · " + strings.Join(parts, " · ")
+	return strings.Join(parts, styleDim.Render(" · "))
 }
 
-// activityChip is the header's live transfer summary. It exists because
-// queuing a download no longer jumps to the downloads screen: without it, a
-// download started from the results list would vanish from view entirely.
+// activityChip is the live transfer summary shown where downloads are not
+// on screen. It exists because queuing a download no longer jumps to the
+// downloads screen: without it, a download started from the results list
+// would vanish from view entirely.
 func (a *App) activityChip() string {
 	m := a.downloads.metrics
 	switch {
 	case m.Active > 0:
 		return styleOK.Render(fmt.Sprintf("↓ %d", m.Active)) + styleDim.Render("  "+humanSpeed(m.SpeedBps))
 	case m.Seeding > 0:
-		return styleFaint.Render(fmt.Sprintf("↑ %d seeding", m.Seeding))
+		return styleDim.Render(fmt.Sprintf("↑ %d seeding", m.Seeding))
 	default:
 		return ""
 	}
-}
-
-// stateBadge renders a torrent state with a state-appropriate color.
-func stateBadge(s engine.TorrentState) string {
-	switch s {
-	case engine.StateSeeding:
-		return styleOK.Render("seeding")
-	case engine.StateDone:
-		return styleOK.Render(s.String())
-	case engine.StatePaused:
-		return styleFaint.Render(s.String())
-	case engine.StateMissing:
-		return styleErr.Render(s.String())
-	case engine.StateVerifying:
-		return styleBest.Render(s.String())
-	case engine.StateFetchingMeta, engine.StatePreviewing:
-		return styleDim.Render(s.String())
-	}
-	return styleStateTag.Render(s.String())
 }

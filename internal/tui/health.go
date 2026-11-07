@@ -207,7 +207,7 @@ func (a *App) viewHealth() string {
 		l := lines[i]
 		switch {
 		case l.heading != "":
-			return styleFaint.Render(l.heading)
+			return styleDim.Render(l.heading)
 		case l.note != "":
 			return styleDim.Render(l.note)
 		case l.provider != nil:
@@ -264,7 +264,7 @@ func (a *App) compassStatus(width int) string {
 	// Only advertise a cadence there actually is one; otherwise `r` is the only
 	// thing that ever refreshes this screen.
 	if a.cfg.Health.Enabled {
-		line += styleFaint.Render(fmt.Sprintf("  ·  every %s", humanAgo(a.cfg.Health.Interval())))
+		line += styleDim.Render(fmt.Sprintf("  ·  every %s", humanAgo(a.cfg.Health.Interval())))
 	} else {
 		line += styleFaint.Render("  ·  ") + styleDim.Render("automatic checks off")
 	}
@@ -286,7 +286,7 @@ func (a *App) compassProviderRow(p health.ProviderTrend, width int, selected boo
 		detail = p.Err
 	}
 	if !selected && !p.OK {
-		detail = styleFaint.Render(detail)
+		detail = styleDim.Render(detail)
 	}
 
 	line := fmt.Sprintf("%s %s %s", dot, name, detail)
@@ -301,7 +301,7 @@ func (a *App) compassProviderRow(p health.ProviderTrend, width int, selected boo
 func streakLabel(streak int, plain bool) string {
 	switch {
 	case streak >= 2:
-		return colorize(plain, styleFaint, fmt.Sprintf("up %d", streak))
+		return colorize(plain, styleDim, fmt.Sprintf("up %d", streak))
 	case streak <= -2:
 		return colorize(plain, styleHealthBad, fmt.Sprintf("down %d", -streak))
 	}
