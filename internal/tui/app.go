@@ -351,6 +351,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) View() string {
+	view := a.viewScreen()
+	if glyphs.ascii {
+		return asciiFold(view)
+	}
+	return view
+}
+
+func (a *App) viewScreen() string {
 	if a.intro.active {
 		return a.viewIntro()
 	}

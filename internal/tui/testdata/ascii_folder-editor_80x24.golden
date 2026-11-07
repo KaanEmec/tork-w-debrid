@@ -1,0 +1,24 @@
+    tork-w-debrid  >  settings  >  default ...  saved in ~/.tork/config.yaml
+    ------------------------------------------------------------------------
+
+      default folder
+      > ~/Media/films
+      + will be created - writable - 1.2 TB free
+
+      quick picks
+       ~/Downloads/tork                OS default
+       D:\Media                        used by 3 downloads
+       E:\                             other drive - 1.2 TB free
+
+
+
+
+
+
+
+
+
+
+      this run uses -d D:\Media
+    ------------------------------------------------------------------------
+    enter save   tab complete   ^v quick picks   esc cancel   ? keys
