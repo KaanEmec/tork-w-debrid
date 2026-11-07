@@ -131,7 +131,7 @@ func (a *App) animating() bool {
 		r := &a.results
 		return r.searching || (r.lastBorn >= 0 && a.age(r.lastBorn) < fadeFrames)
 	case screenPreview:
-		return !a.preview.ready
+		return !a.preview.ready || a.preview.startPending
 	case screenDownloads:
 		return a.downloadsAnimating()
 	case screenSettings:

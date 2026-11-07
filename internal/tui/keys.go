@@ -114,6 +114,12 @@ func (a *App) screenKeys() []keyHint {
 		}
 
 	case screenPreview:
+		if a.preview.debrid && a.preview.debridErr != "" {
+			return []keyHint{onStrip("t", "normal torrent"), onStrip("esc", "back")}
+		}
+		if a.preview.startPending {
+			return []keyHint{onStrip("esc", "cancel")}
+		}
 		toggle := "choose"
 		if n := a.preview.currentNode(); n != nil && n.fileIdx < 0 {
 			toggle = "choose folder"
@@ -303,6 +309,9 @@ func (a *App) resultEnterLabel() string {
 
 func (a *App) previewDownloadLabel() string {
 	if !a.preview.ready {
+		if a.preview.debrid {
+			return "download all now"
+		}
 		return "queue all"
 	}
 	if a.preview.selectedBytes() == 0 {
