@@ -421,13 +421,13 @@ func TestCloudRowsShowOnlyForTheCloudPhase(t *testing.T) {
 
 func TestCloudDetailLineExplainsTheHandOff(t *testing.T) {
 	it := downloadItem{Route: routeCloud, ViaDebrid: true, RemoteFiles: 3}
-	got := ansi.Strip(debridDetail(it))
+	got := ansi.Strip(debridDetail(it, 200))
 	for _, want := range []string{"Route: Real-Debrid", "3 files selected", "keep torkwd running"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("detail %q misses %q", got, want)
 		}
 	}
-	if debridDetail(downloadItem{State: engine.StateDownloading, ViaDebrid: true}) != "" {
+	if debridDetail(downloadItem{State: engine.StateDownloading, ViaDebrid: true}, 100) != "" {
 		t.Error("a local debrid row must look like any other download")
 	}
 }

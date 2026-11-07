@@ -1398,6 +1398,10 @@ func (a *App) renderDownloadItem(it downloadItem, selected bool, width int) []st
 		nameStyle = styleFg.Bold(true)
 	}
 	inner := max(1, width-1) // the gutter cell
+	// A long status (a cloud note) gives way before the name shrinks to a stub.
+	if room := inner - lipgloss.Width(glyph) - 2 - 14 - 2; lipgloss.Width(status) > room {
+		status = truncate(status, max(room, 8))
+	}
 	nameWidth := max(1, inner-lipgloss.Width(glyph)-2-lipgloss.Width(status)-2)
 	line1 := glyph + "  " + nameStyle.Render(truncate(it.Name, nameWidth))
 	if gap := inner - lipgloss.Width(line1) - lipgloss.Width(status); gap > 0 {
@@ -1443,6 +1447,8 @@ func (a *App) downloadRail(it downloadItem, railW, frame int) string {
 		progress = clampProgress(it.CloudProgress)
 		pct = padLeft(fmt.Sprintf("%d%%", int(progress*100)), 6)
 		rail = progressRailIn(progress, railW, styleRouteDim)
+	case it.Failed:
+		rail = progressRailIn(progress, railW, styleErr)
 	case it.State == engine.StatePaused:
 		rail = progressRailIn(progress, railW, styleDim)
 	case it.State == engine.StateMissing:
@@ -1521,7 +1527,7 @@ func (a *App) downloadDetailShown(it downloadItem, width int) bool {
 // per-connection speeds for a multi-connection download, otherwise the save
 // path and transfer facts.
 func (a *App) downloadDetailLine(it downloadItem, width int) string {
-	if text := debridDetail(it); text != "" {
+	if text := debridDetail(it, width); text != "" {
 		return truncate(text, width)
 	}
 	if len(it.Segments) > 0 {
@@ -1556,7 +1562,7 @@ func (a *App) downloadDetailLine(it downloadItem, width int) string {
 // debridDetail is the selected Real-Debrid row's extra line: the route, the
 // files chosen and what happens next (J4.4). It is "" for every other row,
 // which keep their path or segment line.
-func debridDetail(it downloadItem) string {
+func debridDetail(it downloadItem, width int) string {
 	dim := styleDim.Render
 	route := styleRoute.Render("Route: Real-Debrid")
 	files := ""
@@ -1567,11 +1573,15 @@ func debridDetail(it downloadItem) string {
 	case it.Failed:
 		return route + dim(" · t download as a torrent · x remove")
 	case it.Route == routeCloud:
-		next := " · tork downloads here when Real-Debrid is done; keep torkwd running"
+		keep := " · keep torkwd running"
 		if runtime.GOOS == "windows" {
-			next += " or open it again later"
+			keep += " or open it again later"
 		}
-		return route + files + dim(next)
+		full := route + files + dim(" · tork starts downloading here when Real-Debrid is done"+keep)
+		if lipgloss.Width(full) <= width {
+			return full
+		}
+		return route + files + dim(keep) // the advice that matters when room is short
 	case it.Route == routeStarting:
 		return route + files + dim(" · checking whether it is ready")
 	case it.ViaDebrid && it.State == engine.StatePaused && showDownloadNote(it.Note):
