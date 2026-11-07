@@ -555,14 +555,22 @@ func TestSingleConnectionRetriesBusyServerButNotMissingFile(t *testing.T) {
 	}
 }
 
-// countingTransport counts requests whose response body is still open.
+// countingTransport counts requests whose response body is still open, and
+// the most open at once.
 type countingTransport struct {
 	base http.RoundTripper
 	open atomic.Int32
+	peak atomic.Int32
 }
 
 func (c *countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	c.open.Add(1)
+	now := c.open.Add(1)
+	for {
+		old := c.peak.Load()
+		if now <= old || c.peak.CompareAndSwap(old, now) {
+			break
+		}
+	}
 	resp, err := c.base.RoundTrip(req)
 	if err != nil {
 		c.open.Add(-1)

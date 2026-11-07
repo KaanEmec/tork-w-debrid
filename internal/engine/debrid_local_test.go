@@ -136,7 +136,7 @@ func (h *rdHost) serve(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 			panic(http.ErrAbortHandler)
 		}
-		if h.rate > 0 {
+		if h.rate > 0 && off <= end { // no pause after the last byte
 			flusher.Flush()
 			due := began.Add(time.Duration(float64(sent) / float64(h.rate) * float64(time.Second)))
 			select {
@@ -452,9 +452,11 @@ func TestDebridLocalRefusesToOverwriteDifferentFile(t *testing.T) {
 	}
 }
 
-// J7.5: with 8 connections per file and two files running, the host never
-// sees more than debrid.max_total_connections at once; a changed setting
-// reaches the running transfer.
+// J7.5: with 8 connections per file and two files running, no more than
+// debrid.max_total_connections requests are open at once. It is counted at
+// the engine's HTTP transport (request sent until body closed): the host's
+// own count lags, since a handler keeps writing for a moment after the
+// engine closed a range it no longer needs (a stolen or finished segment).
 func TestDebridConnectionLimits(t *testing.T) {
 	files := []rdFile{
 		{1, "a.bin", testPayload(3<<20, 1)},
@@ -464,11 +466,15 @@ func TestDebridConnectionLimits(t *testing.T) {
 	host.rate = 1 << 20
 	fake := &fakeDebrid{info: readyTorrent("Pack", files, rdLinks(2)), unlock: unlockTo(host, files)}
 	eng := newLocalTestEngine(t, fake)
+	open := countDirectRequests(eng)
 	eng.SetDebridSettings(config.DebridConfig{Connections: 8, MaxTotalConnections: 4})
 	h := startLocal(t, eng, t.TempDir())
 	awaitHash(t, eng, h, isDone, 30*time.Second)
-	if peak := host.peak.Load(); peak > 4 || peak < 2 {
-		t.Fatalf("peak connections = %d, want 2..4 (max_total_connections 4)", peak)
+	if peak := open.peak.Load(); peak > 4 || peak < 2 {
+		t.Fatalf("peak open requests = %d, want 2..4 (max_total_connections 4)", peak)
+	}
+	if n := open.open.Load(); n != 0 {
+		t.Fatalf("%d requests still open after the download", n)
 	}
 }
 
