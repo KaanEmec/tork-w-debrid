@@ -21,25 +21,6 @@ func init() {
 	})
 }
 
-// replayIntroMsg asks for the intro (J8.8) to play now, then return to
-// Settings. "play the intro" sends it; it plays even when "intro after each
-// update" is off.
-type replayIntroMsg struct{}
-
-// replayIntroHook starts the intro. J8.8 sets it (in an init) to a function
-// that switches to the intro screen and comes back to Settings when the
-// intro ends or a key stops it; with animations off the intro should show
-// its still poster frame until a key is pressed. While it is nil, "play the
-// intro" says the intro isn't available.
-var replayIntroHook func(a *App) tea.Cmd
-
-func (replayIntroMsg) applySettings(a *App) tea.Cmd {
-	if replayIntroHook != nil {
-		return replayIntroHook(a)
-	}
-	return a.showToast("the intro isn't part of this build yet", toastWarn, toastQuick)
-}
-
 // motionRow is "animations on/off" (ui.motion). It takes effect at once.
 type motionRow struct{}
 

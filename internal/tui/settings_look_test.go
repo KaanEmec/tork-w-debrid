@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/cursor"
-	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kaanemec/tork-w-debrid/internal/config"
 	"github.com/kaanemec/tork-w-debrid/internal/state"
@@ -68,18 +67,10 @@ func TestPlayTheIntroSendsReplayEvenWithIntroOff(t *testing.T) {
 		t.Fatalf("play the intro sent %T, want replayIntroMsg", msg)
 	}
 
-	// No intro in the build: a toast says so.
+	a.width, a.height = 120, 36
 	a.Update(msg)
-	if a.toast.text == "" {
-		t.Fatal("no toast without an intro")
-	}
-
-	played := false
-	replayIntroHook = func(*App) tea.Cmd { played = true; return nil }
-	t.Cleanup(func() { replayIntroHook = nil })
-	a.Update(msg)
-	if !played {
-		t.Fatal("replayIntroMsg did not reach the intro hook")
+	if !a.intro.active {
+		t.Fatal("replayIntroMsg did not start the intro")
 	}
 }
 
