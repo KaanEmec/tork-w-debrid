@@ -20,6 +20,7 @@ import (
 	"github.com/kaanemec/tork-w-debrid/internal/autopilot"
 	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
 	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/debrid/realdebrid"
 	"github.com/kaanemec/tork-w-debrid/internal/engine"
 	"github.com/kaanemec/tork-w-debrid/internal/health"
 	"github.com/kaanemec/tork-w-debrid/internal/intake"
@@ -184,6 +185,7 @@ func runDoctor(args []string) (failed bool, err error) {
 	record := fs.Bool("record", false, "record this provider check in health history")
 	deepEngine := fs.Bool("engine", false, "start the torrent engine to verify its listener")
 	proxyCheck := fs.Bool("proxy-check", false, "verify proxy egress through the Tor Project check service")
+	debridCheck := fs.Bool("debrid-check", false, "verify the linked Real-Debrid account with a live request")
 	if err := fs.Parse(args); err != nil {
 		return false, err
 	}
@@ -207,12 +209,14 @@ func runDoctor(args []string) (failed bool, err error) {
 	if *deepEngine {
 		engineProbe = probeEngine
 	}
-	var rep health.Report
+	opts := health.DoctorOptions{Engine: engineProbe}
 	if *proxyCheck {
-		rep = health.RunDoctorWithEgressProbe(ctx, cfg, enabledProviders(cfg), store, engineProbe, health.ProbeProxyEgress)
-	} else {
-		rep = health.RunDoctor(ctx, cfg, enabledProviders(cfg), store, engineProbe)
+		opts.Egress = health.ProbeProxyEgress
 	}
+	if *debridCheck {
+		opts.Debrid = health.NewDebridProbe(realdebrid.Endpoints{})
+	}
+	rep := health.RunDoctorWith(ctx, cfg, enabledProviders(cfg), store, opts)
 	fmt.Print(health.FormatReport(rep))
 
 	if *record && len(rep.Probe) > 0 {

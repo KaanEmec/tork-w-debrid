@@ -80,16 +80,29 @@ type EgressProbe func(context.Context, *config.Config) (proxy.Egress, error)
 // repaired - though an engineProbe, being opt-in, does start a real client and
 // so touches the piece-completion database.
 func RunDoctor(ctx context.Context, cfg *config.Config, providers []provider.Provider, store *Store, engineProbe EngineProbe) Report {
-	return runDoctor(ctx, cfg, providers, store, engineProbe, nil)
+	return RunDoctorWith(ctx, cfg, providers, store, DoctorOptions{Engine: engineProbe})
 }
 
 // RunDoctorWithEgressProbe is RunDoctor with an explicit, opt-in proxy egress
 // check. The normal doctor contract remains free of this extra public request.
 func RunDoctorWithEgressProbe(ctx context.Context, cfg *config.Config, providers []provider.Provider, store *Store, engineProbe EngineProbe, egressProbe EgressProbe) Report {
-	return runDoctor(ctx, cfg, providers, store, engineProbe, egressProbe)
+	return RunDoctorWith(ctx, cfg, providers, store, DoctorOptions{Engine: engineProbe, Egress: egressProbe})
 }
 
-func runDoctor(ctx context.Context, cfg *config.Config, providers []provider.Provider, store *Store, engineProbe EngineProbe, egressProbe EgressProbe) Report {
+// DoctorOptions holds the opt-in probes. A nil probe skips its check, so the
+// default doctor run makes no proxy-egress or debrid network request.
+type DoctorOptions struct {
+	Engine EngineProbe
+	Egress EgressProbe
+	Debrid DebridProbe
+}
+
+// RunDoctorWith is RunDoctor with every opt-in probe chosen by the caller.
+func RunDoctorWith(ctx context.Context, cfg *config.Config, providers []provider.Provider, store *Store, opts DoctorOptions) Report {
+	return runDoctor(ctx, cfg, providers, store, opts.Engine, opts.Egress, opts.Debrid)
+}
+
+func runDoctor(ctx context.Context, cfg *config.Config, providers []provider.Provider, store *Store, engineProbe EngineProbe, egressProbe EgressProbe, debridProbe DebridProbe) Report {
 	var rep Report
 	add := func(name string, st Status, format string, args ...any) {
 		rep.Checks = append(rep.Checks, Check{Name: name, Status: st, Detail: fmt.Sprintf(format, args...)})
@@ -110,6 +123,7 @@ func runDoctor(ctx context.Context, cfg *config.Config, providers []provider.Pro
 	rep.Checks = append(rep.Checks, checkState(cfg))
 	rep.Checks = append(rep.Checks, checkMetadataCache(cfg))
 	rep.Checks = append(rep.Checks, checkEngine(cfg, engineProbe))
+	rep.Checks = append(rep.Checks, checkDebrid(ctx, cfg, debridProbe, time.Now())...)
 
 	if cfg.ProxyError() != nil {
 		add("providers", StatusWarn, "not checked; proxy config is invalid")
