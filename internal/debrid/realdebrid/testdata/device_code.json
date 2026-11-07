@@ -1,0 +1,8 @@
+{
+  "device_code": "DEVICECODESECRET",
+  "user_code": "ABCD1234",
+  "interval": 5,
+  "expires_in": 600,
+  "verification_url": "https://real-debrid.com/device",
+  "direct_verification_url": "https://real-debrid.com/device?code=ABCD1234"
+}

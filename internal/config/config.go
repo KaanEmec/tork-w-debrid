@@ -110,6 +110,7 @@ type Config struct {
 	MetadataCache         MetadataCacheConfig       `yaml:"metadata_cache"`
 	TorrentTuning         TorrentTuningConfig       `yaml:"torrent_tuning,omitempty"`
 	Direct                DirectConfig              `yaml:"direct"`
+	Debrid                DebridConfig              `yaml:"debrid"`
 	Providers             map[string]ProviderConfig `yaml:"providers"`
 
 	dir          string // ~/.tork, resolved at load time
@@ -137,6 +138,7 @@ func (c *Config) SetDownloadDir(dir string) {
 func (c *Config) Dir() string                  { return c.dir }
 func (c *Config) StatePath() string            { return filepath.Join(c.dir, "state.json") }
 func (c *Config) ConfigPath() string           { return filepath.Join(c.dir, "config.yaml") }
+func (c *Config) DebridPath() string           { return filepath.Join(c.dir, "debrid.json") }
 func (c *Config) HealthPath() string           { return filepath.Join(c.dir, "health.json") }
 func (c *Config) AutopilotHistoryPath() string { return filepath.Join(c.dir, "autopilot.jsonl") }
 func (c *Config) MetadataCacheDir() string     { return filepath.Join(c.dir, "metainfo") }
@@ -220,6 +222,7 @@ func Default(dir string) *Config {
 		Health:                HealthConfig{Enabled: false, IntervalHours: 24},
 		MetadataCache:         MetadataCacheConfig{Enabled: true, MaxMB: 256, MaxEntries: 512},
 		Direct:                DirectConfig{MaxConnections: 4, MinChunkSize: "10MB", EnableChunking: true},
+		Debrid:                DefaultDebridConfig(),
 		Providers:             defaultProviders(),
 		dir:                   dir,
 		proxyRuntime:          runtime,

@@ -111,3 +111,24 @@ func (e Entry) SeedEnabled(defaultSeed bool) bool {
 	}
 	return *e.Seed
 }
+
+// PinDownloadDir records dir as the folder of every entry saved without one.
+// Such entries otherwise follow whatever the default folder is at resume time,
+// so pinning them before the default changes keeps them where they are. It
+// returns how many entries changed; the caller saves the state.
+func (s *State) PinDownloadDir(dir string) int {
+	if dir == "" {
+		return 0
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	n := 0
+	for i := range s.Entries {
+		if s.Entries[i].DownloadDir == "" {
+			s.Entries[i].DownloadDir = dir
+			n++
+		}
+	}
+	return n
+}
