@@ -1,11 +1,11 @@
-# tork (tork-w-debrid fork)
+# tork-w-debrid
 
-> This is a fork of [melqtx/tork](https://github.com/melqtx/tork). It tracks
-> upstream and adds `tork update` (self-update from source) and more built-in
-> sources ([melqtx/tork#35](https://github.com/melqtx/tork/pull/35)). Its Go
-> module is `github.com/kaanemec/tork-w-debrid`, so `go install` and
-> `tork update` use this fork. The Homebrew, AUR and Nix packages install
-> upstream tork, not this fork.
+> A fork of [melqtx/tork](https://github.com/melqtx/tork). It tracks upstream
+> and adds `tork update` (self-update from source) and more built-in sources
+> ([melqtx/tork#35](https://github.com/melqtx/tork/pull/35)), with debrid
+> support planned. Its Go module is `github.com/kaanemec/tork-w-debrid`, so
+> `go install` and `tork update` use this fork. The command is still `tork`.
+> The Homebrew, AUR and Nix packages install upstream tork, not this fork.
 
 ```
  /\_/\
