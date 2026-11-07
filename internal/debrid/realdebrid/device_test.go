@@ -180,6 +180,20 @@ func TestDeviceLoginTokenExchangeRejected(t *testing.T) {
 	}
 }
 
+func TestDeviceLoginRefusedClientIsNotPremiumError(t *testing.T) {
+	srv, _ := serve(t, func(w http.ResponseWriter, _ *http.Request, _ recorded) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"permission_denied","error_code":9}`))
+	})
+	_, err := newTestLogin(srv.URL).Start(context.Background())
+	if errors.Is(err, debrid.ErrNotPremium) {
+		t.Fatalf("a refused OAuth client reads as premium expired: %v", err)
+	}
+	if got, want := debrid.Message(err), "Real-Debrid: permission denied"; got != want {
+		t.Fatalf("Message = %q, want %q", got, want)
+	}
+}
+
 func TestDeviceLoginSlowDownBacksOff(t *testing.T) {
 	var polls atomic.Int32
 	srv, _ := serve(t, func(w http.ResponseWriter, r *http.Request, rec recorded) {
