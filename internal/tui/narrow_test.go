@@ -399,3 +399,29 @@ func TestSessionLaunchCarriesASCII(t *testing.T) {
 		t.Fatal("SetASCIIGlyphs(false) did not restore the set")
 	}
 }
+
+// Every downloads row, selected in turn, fits narrow terminals and ASCII
+// mode: the cloud, starting, queued, failed and segment rows included.
+func TestEveryDownloadsRowFitsWhenSelected(t *testing.T) {
+	for _, ascii := range []bool{false, true} {
+		SetASCIIGlyphs(ascii)
+		for _, size := range append(narrowSizes, [2]int{120, 36}) {
+			base := downloadsGoldenApp(size[0], size[1])
+			for i := range base.downloads.items {
+				a := downloadsGoldenApp(size[0], size[1])
+				a.downloads.win.cursor = i
+				view := a.View()
+				assertRenderFits(t, view, size[0])
+				if got := len(strings.Split(view, "\n")); got > size[1] {
+					t.Errorf("ascii=%v %dx%d row %d: %d lines", ascii, size[0], size[1], i, got)
+				}
+				if ascii {
+					if l, r, bad := nonASCII(view); bad {
+						t.Errorf("row %d line %d has %q", i, l, r)
+					}
+				}
+			}
+		}
+	}
+	SetASCIIGlyphs(false)
+}

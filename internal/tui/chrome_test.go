@@ -52,7 +52,7 @@ func TestChromeHeaderAndFooterAtEachSize(t *testing.T) {
 				if !strings.HasPrefix(header, "tork-w-debrid  ›  downloads") {
 					t.Errorf("header = %q", header)
 				}
-				if !strings.HasSuffix(header, "↓ 27.3 MiB/s · ☁︎ 1") {
+				if !strings.HasSuffix(header, "↓ 27.3 MiB/s · ☁︎ 2") {
 					t.Errorf("header fact missing: %q", header)
 				}
 			}

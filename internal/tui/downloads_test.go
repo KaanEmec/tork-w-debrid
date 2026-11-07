@@ -12,10 +12,14 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
 	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/debrid"
 	"github.com/kaanemec/tork-w-debrid/internal/engine"
 	"github.com/kaanemec/tork-w-debrid/internal/state"
+	"github.com/muesli/termenv"
 )
 
 func TestDownloadItemsShowsMissingCompletedData(t *testing.T) {
@@ -351,5 +355,214 @@ func TestApplyVerifyResultClearsCompletionState(t *testing.T) {
 	}
 	if entry.Done || entry.CompletedAt != nil || !entry.Paused || entry.BytesCompleted != 0 {
 		t.Fatalf("direct mismatch entry = %+v", entry)
+	}
+}
+
+func cloudSnap(name string, state engine.TorrentState, status debrid.RemoteStatus, progress float64) engine.Snapshot {
+	s := engine.Snapshot{
+		Magnet: "magnet:?xt=urn:btih:" + name, Name: name, State: state, Via: "realdebrid",
+		Length: 1000, BytesCompleted: int64(progress * 10), SpeedBps: 12 << 20, Seeders: 8,
+		Remote: &engine.RemoteProgress{Status: status, Progress: progress},
+	}
+	return s
+}
+
+func TestCloudRowsShowOnlyForTheCloudPhase(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	local := cloudSnap("local", engine.StateDownloading, debrid.Downloading, 100)
+	local.SpeedBps, local.BytesCompleted = 5<<20, 400
+	a.downloads.snaps = []engine.Snapshot{
+		cloudSnap("busy", engine.StateRemote, debrid.Downloading, 43),
+		cloudSnap("waiting", engine.StateRemote, debrid.Queued, 0),
+		local,
+	}
+	a.refreshDownloadItems()
+	items := a.downloadItems()
+	if len(items) != 3 {
+		t.Fatalf("%d items", len(items))
+	}
+	byName := map[string]downloadItem{}
+	for _, it := range items {
+		byName[it.Name] = it
+	}
+	if it := byName["busy"]; it.Route != routeCloud || it.CloudNote != "Real-Debrid 43 % · 12.0 MiB/s · 8 seeders" || it.CloudProgress != 0.43 {
+		t.Errorf("busy = %+v", it)
+	}
+	if it := byName["waiting"]; it.Route != routeCloud || it.CloudNote != "queued on Real-Debrid" {
+		t.Errorf("waiting = %+v", it)
+	}
+	if it := byName["local"]; it.Route != routeLocal || !it.ViaDebrid {
+		t.Errorf("local = %+v", it)
+	}
+	if m := a.downloads.metrics; m.Cloud != 2 || m.SpeedBps != 5<<20 {
+		t.Errorf("metrics = %+v, want 2 cloud items and only the local speed", m)
+	}
+	for _, it := range items { // the cloud glyph and text belong to the first two only
+		plain := ansi.Strip(strings.Join(a.renderDownloadItem(it, false, 100), "\n"))
+		wantCloud := it.Name != "local"
+		if got := strings.Contains(plain, glyphs.cloud); got != wantCloud {
+			t.Errorf("%s: cloud glyph shown = %v\n%s", it.Name, got, plain)
+		}
+		if strings.Contains(plain, "Real-Debrid") != wantCloud {
+			t.Errorf("%s: Real-Debrid text mismatch\n%s", it.Name, plain)
+		}
+	}
+	view := ansi.Strip(a.viewDownloads())
+	if !strings.Contains(view, "↓ 5.0 MiB/s · ☁\uFE0E 2") {
+		t.Errorf("header chip missing:\n%s", view)
+	}
+	assertRenderFits(t, a.viewDownloads(), 100)
+	a.downloads.snaps = a.downloads.snaps[2:]
+	a.refreshDownloadItems()
+	if strings.Contains(ansi.Strip(a.viewDownloads()), "☁") {
+		t.Error("the cloud chip shows with no cloud item")
+	}
+}
+
+func TestCloudDetailLineExplainsTheHandOff(t *testing.T) {
+	it := downloadItem{Route: routeCloud, ViaDebrid: true, RemoteFiles: 3}
+	got := ansi.Strip(debridDetail(it, 200))
+	for _, want := range []string{"Route: Real-Debrid", "3 files selected", "keep torkwd running"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("detail %q misses %q", got, want)
+		}
+	}
+	if debridDetail(downloadItem{State: engine.StateDownloading, ViaDebrid: true}, 100) != "" {
+		t.Error("a local debrid row must look like any other download")
+	}
+}
+
+func TestFailedDebridRowShowsReasonAndWay(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	a.downloads.items = []downloadItem{{Name: "Dead torrent", ViaDebrid: true, Failed: true, Live: true,
+		State: engine.StatePaused, Note: "☁ RD dead: no seeders"}}
+	a.downloads.itemsReady = true
+	view := ansi.Strip(a.viewDownloads())
+	for _, want := range []string{"dead: no seeders", "Route: Real-Debrid", "t download as a torrent"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("failed row misses %q:\n%s", want, view)
+		}
+	}
+	assertRenderFits(t, a.viewDownloads(), 100)
+}
+
+func TestRemoveDialogOffersTheCloudToggle(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	cloud := downloadItem{Name: "c", Live: true, ViaDebrid: true, Route: routeCloud}
+	local := downloadItem{Name: "l", Live: true, ViaDebrid: true, State: engine.StateDownloading}
+	torrent := downloadItem{Name: "t", Live: true, State: engine.StateDownloading}
+
+	if c := a.newRemoveConfirm(cloud, false); !c.debrid || !c.deleteRemote {
+		t.Errorf("cloud phase: %+v, want the toggle on", c)
+	}
+	if c := a.newRemoveConfirm(local, false); !c.debrid || c.deleteRemote {
+		t.Errorf("local phase: %+v, want the toggle off", c)
+	}
+	if c := a.newRemoveConfirm(torrent, true); c.debrid || c.options().DeleteRemote || !c.options().DeleteData {
+		t.Errorf("torrent: %+v", c)
+	}
+
+	a.downloads.items, a.downloads.itemsReady = []downloadItem{cloud}, true
+	a.downloads.confirmRemove = a.newRemoveConfirm(cloud, false)
+	if view := ansi.Strip(a.helpLineForTest()); !strings.Contains(view, "cloud copy: delete") {
+		t.Errorf("dialog footer = %q", view)
+	}
+	a.updateRemoveConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if a.downloads.confirmRemove.options().DeleteRemote {
+		t.Error("c did not turn the cloud delete off")
+	}
+	if view := ansi.Strip(a.helpLineForTest()); !strings.Contains(view, "cloud copy: keep") {
+		t.Errorf("dialog footer = %q", view)
+	}
+}
+
+func (a *App) helpLineForTest() string { return a.viewDownloads() }
+
+// fourSegments is a 100 MB file on four connections: the first two segments
+// are mostly done, the third has just started, the fourth is retrying.
+func fourSegments() engine.SegmentMap {
+	const mb = 1 << 20
+	return engine.SegmentMap{
+		Total: 100 * mb, Limit: 4, Connections: 3,
+		Completed: []engine.ByteSpan{{Start: 0, End: 12*mb - 1}},
+		Segments: []engine.SegmentInfo{
+			{Start: 12 * mb, End: 37*mb - 1, Done: 10 * mb, SpeedBps: 6.1e6},
+			{Start: 37 * mb, End: 62*mb - 1, Done: 5 * mb, SpeedBps: 5.9e6},
+			{Start: 62 * mb, End: 87*mb - 1, Done: 1 * mb, SpeedBps: 6.0e6},
+			{Start: 87 * mb, End: 100*mb - 1, SpeedBps: 0.4e6, Retrying: true, Tries: 1},
+		},
+	}
+}
+
+func TestSegmentCellsFromAFixedMap(t *testing.T) {
+	cells, speeds, warn := segmentCells(fourSegments(), 16)
+	if len(cells) != 16 || len(speeds) != 4 || len(warn) != 4 {
+		t.Fatalf("%d cells, %d speeds, %d marks", len(cells), len(speeds), len(warn))
+	}
+	if cells[0] != segmentDone || cells[1] != segmentDone {
+		t.Errorf("the first 12 MB must be done: %v", cells)
+	}
+	if cells[15] != segmentPart || cells[14] != segmentPart {
+		t.Errorf("the last cells have a connection in them: %v", cells)
+	}
+	if !warn[3] || warn[0] {
+		t.Errorf("only the retrying connection is marked: %v", warn)
+	}
+	if c, _, _ := segmentCells(engine.SegmentMap{Total: 100, Limit: 1, Segments: []engine.SegmentInfo{{End: 99}}}, 16); c != nil {
+		t.Error("a single-connection download gets no map")
+	}
+}
+
+func TestSegmentLineShowsMapSpeedsAndAmberRetry(t *testing.T) {
+	withProfile(t, termenv.TrueColor, true)
+	cells, speeds, warn := segmentCells(fourSegments(), 16)
+	for _, w := range []int{80, 60, 30} {
+		line := segmentLine(cells, speeds, warn, w-4)
+		if lipgloss.Width(line) > w-4 {
+			t.Errorf("segment line is %d cells at width %d", lipgloss.Width(line), w)
+		}
+	}
+	line := segmentLine(cells, speeds, warn, 76)
+	plain := ansi.Strip(line)
+	for _, want := range []string{"▕", "▏", "4 connections · 6.1 · 5.9 · 6.0 · 0.4 MB/s"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("line %q misses %q", plain, want)
+		}
+	}
+	amber := ""
+	for _, r := range sgrRuns(line) {
+		if r.text == "0.4" {
+			amber = r.fg
+		}
+		if r.text == "6.1" && r.fg == amber && amber != "" {
+			t.Error("a healthy connection is drawn in the retry colour")
+		}
+	}
+	if amber == "" {
+		t.Error("the retried connection has no colour")
+	}
+	healthy := ""
+	for _, r := range sgrRuns(line) {
+		if r.text == "6.1" {
+			healthy = r.fg
+		}
+	}
+	if healthy == amber {
+		t.Errorf("retried and healthy speeds share colour %q", amber)
+	}
+}
+
+func TestSelectedRowDrawsSegmentLineAt80Columns(t *testing.T) {
+	a := &App{width: 80, height: 24, screen: screenDownloads, downloads: newDownloadsModel()}
+	cells, speeds, warn := segmentCells(fourSegments(), 16)
+	a.downloads.items = []downloadItem{
+		{Name: "a.iso", State: engine.StateDownloading, Length: 100, BytesCompleted: 40, SpeedBps: 18e6, Segments: cells, ConnSpeeds: speeds, ConnWarn: warn},
+		{Name: "b.iso", State: engine.StateDownloading, Length: 100, BytesCompleted: 40, SpeedBps: 18e6, Segments: cells, ConnSpeeds: speeds, ConnWarn: warn},
+	}
+	a.downloads.itemsReady = true
+	view := a.viewDownloads()
+	assertRenderFits(t, view, 80)
+	if n := strings.Count(ansi.Strip(view), "4 connections"); n != 1 {
+		t.Errorf("the segment line shows %d times, want once (selected row only)", n)
 	}
 }
