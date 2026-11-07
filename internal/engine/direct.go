@@ -54,6 +54,8 @@ type directItem struct {
 	refreshing  chan struct{}     // non-nil while a refresh is in flight
 	refreshErr  error             // result of the last refresh
 	seg         *segmentRun       // live scheduler of a segmented run, or nil
+	debridConns bool              // follow debrid.connections (a debrid file) instead of connections
+	err         error             // why the last run failed, or nil
 }
 
 // key identifies the download: its resume key, or else its URL.
@@ -210,6 +212,7 @@ func (e *Engine) startDirectLocked(it *directItem) {
 	it.runDone = done
 	it.state = StateDownloading
 	it.note = ""
+	it.err = nil
 	it.samples = ring{}
 	it.refreshes, it.refreshErr = 0, nil
 	e.dwg.Add(1)
@@ -585,6 +588,7 @@ func (e *Engine) failDirect(ctx context.Context, it *directItem, err error) {
 	e.mu.Lock()
 	it.state, it.cancel = StatePaused, nil
 	it.note = shortNetErr(err)
+	it.err = err
 	e.mu.Unlock()
 }
 

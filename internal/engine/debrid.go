@@ -126,8 +126,16 @@ type DebridItemInfo struct {
 	DownloadDir string
 	// Remote is the last RemoteInfo seen (zero before the first poll).
 	Remote debrid.RemoteInfo
-	// Err is why the item failed, or nil.
+	// Err is why the item failed or was held, or nil.
 	Err error
+	// Paused: stopped by Pause or held after a failure (Note says which);
+	// Resume continues from Phase.
+	Paused bool
+	Note   string
+	// DataPath is the torrent folder (or the single file) under DownloadDir.
+	DataPath string
+	// RemoteDeleted: the cloud copy was deleted after the download.
+	RemoteDeleted bool
 }
 
 // debridItem is one torrent on a debrid service. All fields are guarded by
@@ -160,7 +168,18 @@ type debridItem struct {
 
 	// children are the per-file HTTPS downloads of the local phase (J3.3).
 	// They are not in Engine.direct, so the list shows one row per torrent.
-	children []*directItem
+	children  []*debridChild
+	budget    *ConnectionBudget // debrid.max_total_connections for all files
+	localWake chan struct{}     // a file of the local phase stopped
+	localNote string            // shown on the row while the files download
+	dataPath  string            // torrent folder or single file (D5), "" while unknown
+	shownDone int64             // combined bytes last shown; never goes back
+	samples   ring              // combined speed of the local phase
+
+	// paused: stopped by Pause or held after a failure a retry may fix (the
+	// note says which). The phase is kept, so Resume goes back to it.
+	paused        bool
+	remoteDeleted bool // delete_after_download removed the cloud copy
 }
 
 // SetDebridProvider sets the debrid service new debrid items use (nil turns
@@ -305,6 +324,7 @@ func (e *Engine) DebridItem(h metainfo.Hash) (DebridItemInfo, bool) {
 		Selected:    append([]int(nil), it.selected...),
 		TorrentData: it.torrentData, DownloadDir: it.downloadDir,
 		Remote: info, Err: it.err,
+		Paused: it.paused, Note: it.note, DataPath: it.dataPath, RemoteDeleted: it.remoteDeleted,
 	}, true
 }
 
@@ -515,6 +535,11 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 		if it.name == "" && info.Name != "" {
 			it.name = info.Name
 		}
+		if it.phase != DebridPreview {
+			if path := it.debridDataPath(info); path != "" {
+				it.dataPath = path
+			}
+		}
 		if it.phase == DebridCloud && !it.selectSent && info.Status != debrid.Converting && info.Status != debrid.WaitingSelection {
 			// the service skipped the selection (already chosen): the window
 			// starts now
@@ -531,7 +556,7 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			e.mu.Unlock()
 			return
 		case it.phase == DebridCloud && it.selectSent && info.Status == debrid.Ready:
-			it.phase, it.readyAt, it.cancel = DebridReady, now, nil
+			it.phase, it.readyAt = DebridReady, now
 			fire := !it.readyFired
 			it.readyFired = true
 			hooks := slices.Clone(e.debridHooks)
@@ -539,6 +564,7 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			if fire {
 				e.debridBecameReady(it, info, hooks)
 			}
+			e.runDebridLocal(ctx, it, info)
 			return
 		}
 		wait := it.pollInterval(now)
@@ -549,8 +575,8 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 	}
 }
 
-// debridBecameReady runs once per item when the service has every selected
-// file. J3.3 starts the local phase from here.
+// debridBecameReady runs the ready hooks once per item when the service has
+// every selected file, just before the local phase (J3.3) starts.
 func (e *Engine) debridBecameReady(it *debridItem, info debrid.RemoteInfo, hooks []func(DebridReadyEvent)) {
 	ev := DebridReadyEvent{Hash: it.hash, Info: info}
 	for _, fn := range hooks {
@@ -650,7 +676,7 @@ func (it *debridItem) remoteVisible(now time.Time) bool {
 func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) Snapshot {
 	s := Snapshot{
 		Hash: h, Name: it.displayName(), Magnet: it.magnet,
-		DownloadDir: it.downloadDir, Via: it.via,
+		DownloadDir: it.downloadDir, DataPath: it.dataPath, Via: it.via,
 	}
 	if !it.infoAt.IsZero() {
 		s.Remote = &RemoteProgress{
@@ -697,11 +723,8 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 	case DebridFailed:
 		s.State = StatePaused
 		s.Note = it.note
-	default: // local and done: J3.3 fills these from the children
-		s.State = StateDownloading
-		if it.phase == DebridDone {
-			s.State = StateDone
-		}
+	default: // local and done: the sum over the files
+		e.debridLocalSnapshot(&s, it, now)
 	}
 	return s
 }

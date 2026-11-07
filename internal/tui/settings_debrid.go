@@ -288,6 +288,9 @@ func (rdDeleteRow) update(a *App, key tea.KeyMsg) (bool, tea.Cmd) {
 		return true, a.showError("not saved: " + err.Error())
 	}
 	a.cfg.Debrid.DeleteAfterDownload = on
+	if a.eng != nil {
+		a.eng.SetDebridSettings(a.cfg.Debrid)
+	}
 	return true, nil
 }
 

@@ -13,6 +13,9 @@ import (
 func (e *Engine) directWant(it *directItem) int {
 	e.mu.Lock()
 	n := it.connections
+	if it.debridConns {
+		n = e.debridConns // read on every claim, so a settings change applies at once (J7.5)
+	}
 	e.mu.Unlock()
 	if n <= 0 {
 		n = e.directMaxConnections
@@ -44,14 +47,15 @@ func (e *Engine) SetDirectConnections(h metainfo.Hash, n int) error {
 }
 
 // Segments returns the live segment map of a running segmented download,
-// for a segment bar (roadmap J7.6). It reports false for torrents, finished
-// or paused downloads, and single-connection transfers.
+// for a segment bar (roadmap J7.6). For a debrid item it is the map of its
+// first running file. It reports false for torrents, finished or paused
+// downloads, and single-connection transfers.
 func (e *Engine) Segments(h metainfo.Hash) (SegmentMap, bool) {
 	e.mu.Lock()
 	it, ok := e.direct[h]
 	e.mu.Unlock()
 	if !ok {
-		return SegmentMap{}, false
+		return e.debridSegments(h)
 	}
 	return e.directSegments(it)
 }

@@ -28,6 +28,12 @@ type fakeDebrid struct {
 	selectErr error
 	addErr    error
 
+	// unlock answers Unlock (n counts the calls from 0); nil waits until the
+	// call is cancelled, so the local phase stays "starting".
+	unlock      func(n int, link string) (debrid.Unlocked, error)
+	unlockCalls atomic.Int32
+	deleteErr   error
+
 	infoCalls atomic.Int32
 	adds      []string // magnets, or "torrent" for AddTorrentFile
 	addedData [][]byte
@@ -81,15 +87,23 @@ func (f *fakeDebrid) SelectFiles(_ context.Context, _ string, ids []int) error {
 	return nil
 }
 
-func (f *fakeDebrid) Unlock(context.Context, string) (debrid.Unlocked, error) {
-	return debrid.Unlocked{}, errors.New("not used")
+func (f *fakeDebrid) Unlock(ctx context.Context, link string) (debrid.Unlocked, error) {
+	n := int(f.unlockCalls.Add(1)) - 1
+	f.mu.Lock()
+	fn := f.unlock
+	f.mu.Unlock()
+	if fn == nil {
+		<-ctx.Done()
+		return debrid.Unlocked{}, ctx.Err()
+	}
+	return fn(n, link)
 }
 
 func (f *fakeDebrid) Delete(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deletes = append(f.deletes, id)
-	return nil
+	return f.deleteErr
 }
 
 func (f *fakeDebrid) Account(context.Context) (debrid.Account, error) {
@@ -280,8 +294,9 @@ func TestDebridItemLifecycle(t *testing.T) {
 	if got := fake.infoCalls.Load(); got != calls {
 		t.Fatalf("Info polled %d more times after ready", got-calls)
 	}
+	// the local phase took over (its unlock waits here, see debrid_local_test.go)
 	info, ok := eng.DebridItem(h)
-	if !ok || info.Phase != DebridReady || info.RemoteID != "RID1" || info.DownloadDir != dir || !slices.Equal(info.Selected, []int{1}) {
+	if !ok || info.Phase != DebridLocal || info.RemoteID != "RID1" || info.DownloadDir != dir || !slices.Equal(info.Selected, []int{1}) {
 		t.Fatalf("DebridItem = %+v", info)
 	}
 	if eng.Magnet(h) != testMagnet {

@@ -228,6 +228,9 @@ type Engine struct {
 	debridHooks          []func(DebridReadyEvent)      // run when a debrid item becomes ready
 	debridCtx            context.Context               // parent of debrid pollers; ended by Close
 	debridStop           context.CancelFunc            // cancels debridCtx
+	debridConns          int                           // debrid.connections, per file (J7.5)
+	debridTotal          int                           // debrid.max_total_connections, per torrent
+	debridDeleteAfter    bool                          // debrid.delete_after_download
 	dwg                  sync.WaitGroup                // running direct-download goroutines
 	mwg                  sync.WaitGroup                // metadata-ready/cache goroutines
 	vwg                  sync.WaitGroup                // manual verification calls
@@ -392,6 +395,9 @@ func New(cfg *config.Config) (*Engine, error) {
 		debrid:               make(map[metainfo.Hash]*debridItem),
 		debridCtx:            debridCtx,
 		debridStop:           debridStop,
+		debridConns:          debridConnsOrDefault(cfg.Debrid.Connections, DefaultDownloadConnections),
+		debridTotal:          debridConnsOrDefault(cfg.Debrid.MaxTotalConnections, DefaultConnectionBudget),
+		debridDeleteAfter:    cfg.Debrid.DeleteAfterDownload,
 		pcClose:              func() { pc.Close() },
 		torrentHTTP:          torrentHTTP,
 		directHTTP:           directHTTP,
