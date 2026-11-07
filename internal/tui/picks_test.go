@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kaanemec/tork-w-debrid/internal/provider"
 	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
@@ -257,5 +258,21 @@ func TestPickDetailPanelStaysPinnedAcrossExpansionAndResize(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A title cut to fit keeps a gap before the details column, so "…" never
+// runs into the details ("Ubuntu Linux …Books" before the QA fix).
+func TestPickRowCutTitleKeepsGapBeforeDetails(t *testing.T) {
+	l := newPickLayout(120)
+	row := scoredRow{res: provider.Result{Title: strings.Repeat("Long release name ", 5), Seeders: 9, SizeBytes: 1 << 30, Category: "Books"}}
+	line := ansi.Strip(l.render(row, false, false, fadeFrames))
+	cut := strings.Index(line, "…")
+	if cut < 0 {
+		t.Fatalf("title was not cut: %q", line)
+	}
+	after := []rune(line[cut+len("…"):])
+	if len(after) < 2 || after[0] != ' ' || after[1] != ' ' {
+		t.Fatalf("no two-cell gap after the cut title: %q", line)
 	}
 }

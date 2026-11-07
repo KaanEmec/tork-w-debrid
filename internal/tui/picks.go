@@ -392,7 +392,8 @@ func (l pickLayout) render(row scoredRow, selected, best bool, age int) string {
 	if row.res.SizeBytes > 0 {
 		size = humanBytes(row.res.SizeBytes)
 	}
-	line := " " + titleStyle.Render(padRight(truncate(readableReleaseTitle(row.res.Title), l.title), l.title))
+	// A cut title keeps a two-cell gap before the details, as details do.
+	line := " " + titleStyle.Render(padRight(truncate(readableReleaseTitle(row.res.Title), l.title-2), l.title))
 	if l.details > 0 {
 		details := releaseQuality(row)
 		if details == "source unknown" {
