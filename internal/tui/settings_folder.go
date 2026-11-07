@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -273,7 +274,10 @@ func checkFolder(raw, torkDir string) folderCheck {
 			}
 			break
 		}
-		if !errors.Is(err, os.ErrNotExist) {
+		// A file somewhere above the path (ENOTDIR on Unix): keep walking
+		// up until the file itself is found and reported.
+		notDir := errors.Is(err, syscall.ENOTDIR)
+		if !notDir && !errors.Is(err, os.ErrNotExist) {
 			c.err = "can't read it: " + firstLine(err)
 			return c
 		}
