@@ -1,0 +1,13 @@
+{
+  "id": "UNRESTRICT01",
+  "filename": "E01.mkv",
+  "mimeType": "video/x-matroska",
+  "filesize": 1073741824,
+  "link": "https://real-debrid.com/d/AAAAAAAAAAAA1",
+  "host": "real-debrid.com",
+  "host_icon": "https://fcdn.real-debrid.com/0830/images/hosters/realdebrid.png",
+  "chunks": 32,
+  "crc": 1,
+  "download": "https://abc12.download.real-debrid.com/d/UNRESTRICT01/E01.mkv",
+  "streamable": 1
+}

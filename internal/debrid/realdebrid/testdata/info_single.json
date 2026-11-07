@@ -1,0 +1,19 @@
+{
+  "id": "SINGLE1234567",
+  "filename": "debian-13.iso",
+  "original_filename": "debian-13.iso",
+  "hash": "aaaabbbbccccddddeeeeffff0000111122223333",
+  "bytes": 734003200,
+  "original_bytes": 734003200,
+  "host": "real-debrid.com",
+  "split": 2000,
+  "progress": 43.5,
+  "status": "downloading",
+  "added": "2026-11-02T08:30:00.000Z",
+  "files": [
+    {"id": 1, "path": "/debian-13.iso", "bytes": 734003200, "selected": 1}
+  ],
+  "links": [],
+  "speed": 5242880,
+  "seeders": 37
+}

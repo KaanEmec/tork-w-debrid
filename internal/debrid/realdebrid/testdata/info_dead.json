@@ -1,0 +1,15 @@
+{
+  "id": "DEAD123456789",
+  "filename": "Old.Thing",
+  "original_filename": "Old.Thing",
+  "hash": "2222222222222222222222222222222222222222",
+  "bytes": 1048576,
+  "original_bytes": 1048576,
+  "host": "real-debrid.com",
+  "split": 2000,
+  "progress": 0,
+  "status": "dead",
+  "added": "2026-11-02T08:30:00.000Z",
+  "files": [{"id": 1, "path": "/Old.Thing", "bytes": 1048576, "selected": 1}],
+  "links": []
+}

@@ -1,0 +1,18 @@
+{
+  "id": "WAIT123456789",
+  "filename": "Album",
+  "original_filename": "Album",
+  "hash": "1111111111111111111111111111111111111111",
+  "bytes": 0,
+  "original_bytes": 52428800,
+  "host": "real-debrid.com",
+  "split": 2000,
+  "progress": 0,
+  "status": "waiting_files_selection",
+  "added": "2026-11-02T08:30:00.000Z",
+  "files": [
+    {"id": 1, "path": "/Album/01.flac", "bytes": 26214400, "selected": 0},
+    {"id": 2, "path": "/Album/02.flac", "bytes": 26214400, "selected": 0}
+  ],
+  "links": []
+}

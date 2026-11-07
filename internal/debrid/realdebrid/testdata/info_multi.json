@@ -1,0 +1,25 @@
+{
+  "id": "ABCDEFGHIJKLM",
+  "filename": "Big.Show.S01.1080p",
+  "original_filename": "Big.Show.S01.1080p",
+  "hash": "C12FE1C06BBA254A9DC9F519B335AA7C1367A88A",
+  "bytes": 3221225472,
+  "original_bytes": 4294967296,
+  "host": "real-debrid.com",
+  "split": 2000,
+  "progress": 100,
+  "status": "downloaded",
+  "added": "2026-11-01T10:00:00.000Z",
+  "files": [
+    {"id": 1, "path": "/Big.Show.S01.1080p/E01.mkv", "bytes": 1073741824, "selected": 1},
+    {"id": 2, "path": "/Big.Show.S01.1080p/E02.mkv", "bytes": 1073741824, "selected": 1},
+    {"id": 3, "path": "/Big.Show.S01.1080p/Sample/sample.mkv", "bytes": 1073741824, "selected": 0},
+    {"id": 4, "path": "/Big.Show.S01.1080p/E03.mkv", "bytes": 1073741824, "selected": 1}
+  ],
+  "links": [
+    "https://real-debrid.com/d/AAAAAAAAAAAA1",
+    "https://real-debrid.com/d/AAAAAAAAAAAA2",
+    "https://real-debrid.com/d/AAAAAAAAAAAA4"
+  ],
+  "ended": "2026-11-01T10:05:00.000Z"
+}
