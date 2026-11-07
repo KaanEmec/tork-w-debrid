@@ -55,7 +55,7 @@ func main() {
 	// cleanly with a message instead of dumping a stack trace on the user.
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "tork: fatal: %v\n", r)
+			fmt.Fprintf(os.Stderr, "torkwd: fatal: %v\n", r)
 			os.Exit(1)
 		}
 	}()
@@ -68,25 +68,25 @@ func main() {
 		switch os.Args[1] {
 		case "update", "-update", "--update":
 			if err := runUpdate(os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, "tork:", err)
+				fmt.Fprintln(os.Stderr, "torkwd:", err)
 				os.Exit(1)
 			}
 			return
 		case "_session":
 			if err := runSessionDaemon(os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, "tork:", err)
+				fmt.Fprintln(os.Stderr, "torkwd:", err)
 				os.Exit(1)
 			}
 			return
 		case "status", "stop":
 			if err := runSessionControl(os.Args[1], os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, "tork:", err)
+				fmt.Fprintln(os.Stderr, "torkwd:", err)
 				os.Exit(1)
 			}
 			return
 		case "intro":
 			if err := runIntroCommand(os.Args[2:]); err != nil {
-				fmt.Fprintln(os.Stderr, "tork:", err)
+				fmt.Fprintln(os.Stderr, "torkwd:", err)
 				os.Exit(1)
 			}
 			return
@@ -100,7 +100,7 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "autopilot" {
 		if err := runAutopilot(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "tork:", err)
+			fmt.Fprintln(os.Stderr, "torkwd:", err)
 			os.Exit(1)
 		}
 		return
@@ -108,7 +108,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		failed, err := runDoctor(os.Args[2:])
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "tork:", err)
+			fmt.Fprintln(os.Stderr, "torkwd:", err)
 			os.Exit(1)
 		}
 		if failed {
@@ -118,7 +118,7 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "proxy" {
 		if err := runProxy(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "tork:", err)
+			fmt.Fprintln(os.Stderr, "torkwd:", err)
 			os.Exit(1)
 		}
 		return
@@ -126,7 +126,7 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "debrid" {
 		code, err := runDebrid(os.Args[2:])
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "tork:", err)
+			fmt.Fprintln(os.Stderr, "torkwd:", err)
 		}
 		if code != 0 {
 			os.Exit(code)
@@ -134,7 +134,7 @@ func main() {
 		return
 	}
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "tork:", err)
+		fmt.Fprintln(os.Stderr, "torkwd:", err)
 		os.Exit(1)
 	}
 }
@@ -420,7 +420,7 @@ func maybeCheckHealth(parent context.Context, cfg *config.Config, store *health.
 		// A probe must never take the app down, but it must not vanish either.
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "tork: background health check panicked: %v\n", r)
+				fmt.Fprintf(os.Stderr, "torkwd: background health check panicked: %v\n", r)
 			}
 		}()
 		if warmup > 0 {
@@ -433,7 +433,7 @@ func maybeCheckHealth(parent context.Context, cfg *config.Config, store *health.
 		runCtx, cancelRun := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancelRun()
 		if _, err := health.Run(runCtx, health.KindDaily, providers, eng.Snapshots(), cfg.SearchTimeout(), store); err != nil && runCtx.Err() == nil {
-			fmt.Fprintf(os.Stderr, "tork: background health check: %v\n", err)
+			fmt.Fprintf(os.Stderr, "torkwd: background health check: %v\n", err)
 		}
 	}()
 	return func() {

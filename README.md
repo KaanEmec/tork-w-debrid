@@ -1,9 +1,9 @@
-# tork-w-debrid
+# Tork-w-Debrid
 
 > A fork of [melqtx/tork](https://github.com/melqtx/tork). It tracks upstream
-> and adds `torkwd update` (self-update from source) and more built-in sources
-> ([melqtx/tork#35](https://github.com/melqtx/tork/pull/35)), with debrid
-> support planned. Its Go module is `github.com/kaanemec/tork-w-debrid`, so
+> and adds Real-Debrid downloads with fast multi-connection transfers, a new
+> look, `torkwd update` (self-update from source) and more built-in sources
+> ([melqtx/tork#35](https://github.com/melqtx/tork/pull/35)). Its Go module is `github.com/kaanemec/tork-w-debrid`, so
 > `go install` and `torkwd update` use this fork. The command is `torkwd`, so
 > it can sit beside upstream `tork`; both share the `~/.tork` config. The
 > Homebrew, AUR and Nix packages install upstream tork, not this fork.
@@ -31,10 +31,121 @@ actual swarm, and keep downloads in one calm little terminal app.
   relink it from the downloads screen.
 - Browse and grab current official Linux ISOs from Ubuntu, Debian, Fedora,
   Arch, NixOS, Proxmox, and more. No sketchy mirror hunting.
+- Link a Real-Debrid account and download through it: cached torrents start at
+  full speed, and each file uses several connections. See
+  [Real-Debrid](#real-debrid).
 - Run `torkwd doctor` when a provider or local setup feels off, and use the swarm
   compass to see whether your sources and downloads are healthy over time.
 
 ![tork search results](docs/results.png)
+
+## Real-Debrid
+
+Link a [Real-Debrid](https://real-debrid.com) account (premium needed) and
+Tork-w-Debrid downloads torrents through it instead of the swarm. Linking uses
+Real-Debrid's device-code login only; no API token is ever typed in or stored
+by hand.
+
+```sh
+torkwd debrid login        # shows a code and opens real-debrid.com/device
+torkwd debrid status       # account, premium days left, and whether it is on
+torkwd debrid logout [-y]  # forget the link on this machine
+torkwd debrid on | off     # use Real-Debrid for downloads, or not (stays linked)
+```
+
+You can also link from Settings (`F5`, section Real-Debrid): `enter` on
+"account" shows the code. Tork-w-Debrid uses Real-Debrid's open-source client
+ID (`X245A4XAIBGVM`) and keeps the tokens in `~/.tork/debrid.json`, readable by
+you only. `torkwd debrid logout` removes them here; you can also revoke access
+on real-debrid.com. `torkwd doctor --debrid-check` makes one live request to
+verify the account.
+
+Once an account is linked and "use for downloads" is on (the default), every
+download you start from the preview goes through Real-Debrid. That is every
+download except autopilot and the Linux ISO shelf, which never use it.
+
+- **Cached on Real-Debrid:** within about 5 seconds the row switches from
+  "starting" to a normal download, written straight into your download folder
+  from Real-Debrid's servers over several connections.
+- **Not cached:** after 5 seconds the row shows Real-Debrid's own progress with
+  a `☁` marker, and the Downloads header shows a `☁ N` chip. When Real-Debrid
+  is done, the local download starts by itself.
+- **Torkwd must be running** for that last step. On macOS and Linux the
+  background session keeps going after you close the UI. Windows has no
+  background session: cloud polling stops when you quit and picks up again the
+  next time you start `torkwd`.
+- Sometimes Real-Debrid packs several files into one RAR archive. The row says
+  so, and the archive is downloaded as it is.
+- If Real-Debrid refuses a torrent, the row says why. `t` on that row downloads
+  it as a normal torrent instead, and `p` retries a row that is held.
+- On the Downloads screen, `x` asks before removing a row. In the dialog `c`
+  toggles "cloud copy: delete / keep". The default is delete while the torrent
+  is still in the cloud phase and keep once the local download has started.
+  Settings has "delete cloud copy after download" to clear the copy
+  automatically (`debrid.delete_after_download`, off by default).
+- Debrid downloads don't seed: the seed key is not offered on them.
+- Select one multi-connection row to see its segment map and the speed of each
+  connection.
+
+### What Real-Debrid sees
+
+- Real-Debrid sees every torrent you send it and the files you download from it.
+  It is a third party with its own terms; this fork does not change that.
+- With Real-Debrid on, the preview never contacts the swarm, so your IP is not
+  shown to peers. The file list comes from the local metadata cache, the
+  `.torrent` you gave, or Real-Debrid. Turn it off (`torkwd debrid off`) to
+  get normal torrent downloads back.
+- Real-Debrid ties download links to one IP. If you use the SOCKS5 proxy below,
+  all Real-Debrid traffic goes through it; don't switch the proxy while a
+  debrid download is running, or its links stop working.
+
+### Connections
+
+Each Real-Debrid file downloads with several connections:
+
+```yaml
+debrid:
+  enabled: true                 # "use for downloads"
+  delete_after_download: false
+  connections: 4                # per file, 1-16
+  max_total_connections: 8      # per torrent, 1-32, shared between its files
+```
+
+Settings (`F5`, Downloads) steps `connections per download` through 1, 2, 4, 8
+and 16 and saves at once. Every segment is written straight into its place in
+the final file, so there is no merge step at the end. A slow connection is
+replaced and idle ones take over the biggest remaining piece. Those ideas come
+from [Surge](https://github.com/surge-downloader/surge) (MIT); the code is this
+project's own `internal/engine/direct_parallel.go`.
+
+## Settings
+
+Press `F5` anywhere. Sections: Real-Debrid (account, use for downloads, delete
+cloud copy after download), Downloads (default folder, connections) and Look.
+Everything is saved to `~/.tork/config.yaml` as you change it.
+
+The **default folder** is saved as `download_dir` in that file, which belongs to
+this machine. `torkwd -d DIR` overrides it for one run only, and Settings then
+says "this run uses -d …". Pressing `r` on the folder row resets it to your OS
+Downloads folder.
+
+## The look
+
+The interface uses a dark "Nightglass" look: few panels, one accent colour,
+and a lavender that is only used for Real-Debrid. Small animations run at 10
+frames per second, and only while something on screen moves.
+
+- After each update, a short C64/Amiga-style intro plays once. `torkwd intro`
+  plays it again at any time, and any key stops it. Settings › Look has
+  `animations`, `intro after each update` and `play the intro`.
+- `--no-motion`, `NO_COLOR`, `TERM=dumb`, or output that isn't a terminal turns
+  every animation off.
+- ASCII mode switches on by itself when the terminal can't draw the glyphs
+  (`TERM=dumb` or `linux`, a locale that isn't UTF-8, or no colour at all).
+  `TORKWD_ASCII=1` forces it and `TORKWD_ASCII=0` forces it off.
+- Terminals down to 50 columns by 20 rows are supported.
+
+![Tork-w-Debrid home](docs/home.png)
 
 ## Install
 
@@ -88,8 +199,8 @@ go build -o ./bin/torkwd ./cmd/torkwd
 ./bin/torkwd
 ```
 
-Config lives in `~/.tork/`; downloads land in `~/Downloads/tork` (change with
-`torkwd -d DIR`).
+Config lives in `~/.tork/` (shared with upstream tork); downloads land in
+`~/Downloads/tork` (change it in Settings, or per run with `torkwd -d DIR`).
 
 Already have a torrent? Paste its magnet link, bare infohash, local `.torrent`
 path, or `.torrent` URL into the same home search box. To go straight to the
@@ -145,7 +256,7 @@ Transfer rates are client-wide bytes per second; dial rate is dials per second.
 does not expose its webseed concurrency as a runtime client setting, so tork
 does not claim to configure it here.
 
-Direct HTTP downloads use verified byte ranges when the server supports them:
+Direct HTTP downloads (the Linux ISO shelf) use verified byte ranges when the server supports them:
 
 ```yaml
 direct:
@@ -371,10 +482,11 @@ highlights:
 - **isos** `↑↓` browse, `enter` grab the latest official image
 - **results** `enter` preview (or download when preview is disabled), `/` edit search, `tab` browse categories and destinations, `f` text filter, `o` sort, `z` hide zero seeders, `r` reset filters, `ctrl+f` resolution/size filters, `s` source status, `D` grab now, `Y` copy magnet
 - **preview** `enter` download what's selected, `space` toggle a file or folder, `←→` fold, `a`/`n` select all or none
-- **downloads** `enter` open the file, `o` show it in your file manager, `p` pause/resume, `s` seed, `v` fully verify completed data, `m` move, `r` relink, `y` copy full path, `Y` copy magnet, `x` remove, `d` delete data
+- **downloads** `enter` open the file, `o` show it in your file manager, `p` pause/resume (or retry a held Real-Debrid row), `t` download a refused Real-Debrid row as a torrent, `s` seed (torrents only), `v` fully verify completed data, `m` move, `r` relink, `y` copy full path, `Y` copy magnet, `x` remove (`c` in the dialog: delete or keep the cloud copy), `d` delete data
+- **settings** `F5`; `↑↓` move, `enter` change or act, `space` toggle, `←→` step through choices
 - On home, `tab` / `shift+tab` moves between the search field and menu choices.
 - In results, `tab` switches between the list and browse menu; choose Downloads there, or use `^d`. From Linux ISOs, `tab` opens downloads. In downloads, `tab` or `esc` returns to where you were.
-- `F1` home, `F2` latest results, `F3` downloads, `F4` sources. These also work from the search field.
+- `F1` home, `F2` latest results, `F3` downloads, `F4` sources, `F5` settings. These also work from the search field.
 - `esc` goes back or cancels the current dialog; `^c` closes the UI
 - Preview, move/relink, and removal dialogs keep focus until finished or cancelled.
 - The `?` help panel scrolls with `↑↓` or `pgup/pgdn` on smaller terminals.
