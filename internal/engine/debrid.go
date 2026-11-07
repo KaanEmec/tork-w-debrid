@@ -178,9 +178,15 @@ type debridItem struct {
 
 	// paused: stopped by Pause or held after a failure a retry may fix (the
 	// note says which). The phase is kept, so Resume goes back to it.
-	paused        bool
-	needsLogin    bool  // held until the account is linked again
-	showRemote    bool  // resumed from state.json: show the cloud at once
+	paused     bool
+	needsLogin bool // held until the account is linked again
+	showRemote bool // resumed from state.json: show the cloud at once
+	// The two one-time notices of the ready check (J4.3, TakeDebridNotice):
+	// cloudFirst is set when the files became ready after the row had
+	// already switched to the cloud's progress.
+	cloudFirst    bool
+	toldNotCached bool
+	toldReady     bool
 	readds        int   // re-adds after the service lost the torrent, this run
 	savedLength   int64 // length from state.json, until the service tells
 	remoteDeleted bool  // delete_after_download removed the cloud copy
@@ -605,6 +611,7 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			return
 		case (it.phase == DebridCloud || it.phase == DebridLocal) && it.selectSent && info.Status == debrid.Ready:
 			if it.phase == DebridCloud {
+				it.cloudFirst = it.remoteVisible(now)
 				it.phase, it.readyAt = DebridReady, now
 			}
 			fire := !it.readyFired
@@ -865,7 +872,8 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 			return s
 		}
 		if !it.remoteVisible(now) {
-			s.State = StateFetchingMeta // "starting", like a torrent connecting
+			s.State = StateFetchingMeta // like a torrent connecting
+			s.Note = NoteDebridStarting
 			return s
 		}
 		s.State = StateRemote

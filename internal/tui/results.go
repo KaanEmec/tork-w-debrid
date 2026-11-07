@@ -478,7 +478,7 @@ func (a *App) cancelResolve() {
 }
 
 // launchCmd either enters the preview screen or downloads immediately. With
-// Real-Debrid on, the preview goes through it and never joins the swarm.
+// Real-Debrid on, both go through it and never join the swarm.
 func (a *App) launchCmd(magnet, name string, preview bool) tea.Cmd {
 	from := a.screen
 	if preview {
@@ -486,6 +486,9 @@ func (a *App) launchCmd(magnet, name string, preview bool) tea.Cmd {
 			return cmd
 		}
 		return a.torrentMagnetPreviewCmd(magnet, name, from)
+	}
+	if cmd, ok := a.launchDebridDownload(magnet, name); ok {
+		return cmd
 	}
 	return a.addTorrentCmd(magnet, name)
 }

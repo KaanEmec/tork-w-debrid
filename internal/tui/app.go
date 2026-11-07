@@ -258,16 +258,17 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshDownloadItems()
 		proxyCmd := a.startProxyCheck(time.Time(msg))
 		pathCmd := a.startDownloadPathCheck(false)
+		noticeCmd := a.debridNotices()
 		var startCmd tea.Cmd
 		if a.screen == screenPreview {
 			a.preview.refresh(a.eng)
 			startCmd = a.resumePendingDebridStart()
 		}
 		if a.tickShouldContinue() {
-			return a, tea.Batch(saveCmd, proxyCmd, pathCmd, startCmd, tickCmd(a.tickInterval()))
+			return a, tea.Batch(saveCmd, proxyCmd, pathCmd, noticeCmd, startCmd, tickCmd(a.tickInterval()))
 		}
 		a.downloads.ticking = false
-		return a, tea.Batch(saveCmd, proxyCmd, pathCmd, startCmd)
+		return a, tea.Batch(saveCmd, proxyCmd, pathCmd, noticeCmd, startCmd)
 
 	case torrentAddedMsg:
 		return a, a.onTorrentAdded(msg)
@@ -280,6 +281,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case debridPreviewAddedMsg:
 		return a, a.onDebridPreviewAdded(msg)
+
+	case debridStartedMsg:
+		return a, a.onDebridStarted(msg)
 
 	case resultMsg, resultsClosedMsg, statusMsg, statusClosedMsg, magnetResolvedMsg:
 		// Search streams keep progressing even while the user checks downloads or
@@ -400,14 +404,15 @@ func (a *App) viewScreen() string {
 }
 
 // tickShouldContinue keeps the stats tick armed while there is something to
-// watch: active downloads or a preview awaiting metadata.
+// watch: active downloads, cloud downloads or a preview awaiting metadata.
 func (a *App) tickShouldContinue() bool {
 	if a.screen == screenPreview {
 		return true
 	}
 	for _, s := range a.downloads.snaps {
 		switch s.State {
-		case engine.StateFetchingMeta, engine.StatePreviewing, engine.StateDownloading, engine.StateSeeding, engine.StateVerifying:
+		case engine.StateFetchingMeta, engine.StatePreviewing, engine.StateDownloading, engine.StateSeeding, engine.StateVerifying,
+			engine.StateRemote: // Real-Debrid downloads; the local phase follows by itself
 			return true
 		}
 	}

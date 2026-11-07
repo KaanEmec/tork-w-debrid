@@ -436,9 +436,10 @@ func (a *App) startDebridPreviewDownload() tea.Cmd {
 		return cmd
 	}
 	p.startPending = false
-	// J4.3 hooks in here: StartDebrid opens the 5-second ready window in the
-	// engine. The state entry (Via, RemoteID, RemoteFiles, Phase) comes from
-	// the engine and is kept current by applySnapshotToEntry (J3.4).
+	// StartDebrid opens the 5-second ready window in the engine (J4.3); the
+	// tick shows its outcome. The state entry (Via, RemoteID, RemoteFiles,
+	// Phase) comes from the engine and is kept current by
+	// applySnapshotToEntry (J3.4).
 	dir := ""
 	if a.cfg != nil {
 		dir = a.cfg.DownloadDir
@@ -447,15 +448,9 @@ func (a *App) startDebridPreviewDownload() tea.Cmd {
 		return a.showError(debridProblem(err))
 	}
 	p.started = true
-	var save tea.Cmd
-	if entry, ok := a.eng.DebridEntry(p.hash); ok && a.st != nil {
-		a.st.Upsert(entry)
-		save = a.saveState()
-	}
-	a.downloads.snaps = a.eng.Snapshots()
-	a.refreshDownloadItems()
+	h, name := p.hash, p.name
 	a.leavePreview()
-	return tea.Batch(save, a.ensureTick(), a.showToast(queuedToast(p.name), toastOK, toastQuick))
+	return a.recordDebridStart(h, name)
 }
 
 // debridSelection turns the ticks into Real-Debrid file IDs (J4.2). nil
