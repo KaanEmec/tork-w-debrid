@@ -157,6 +157,7 @@ func runSessionDaemon(args []string) error {
 	stopHealth := maybeCheckHealth(ctx, cfg, store, providers, eng, healthWarmup)
 	defer stopHealth()
 	app := tui.New(cfg, eng, agg, st, store)
+	app.SetVersion(resolveVersion()) // the intro plays once per version (J8.8)
 	build := sessionBuild()
 	hooks := session.Hooks{
 		Attach: func(launch session.Launch) (tea.Cmd, error) {

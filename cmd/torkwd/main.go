@@ -84,6 +84,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "intro":
+			if err := runIntroCommand(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "tork:", err)
+				os.Exit(1)
+			}
+			return
 		case "-h", "--help", "help":
 			printHelp()
 			return
@@ -145,6 +151,7 @@ Usage:
   torkwd debrid login|status|logout [-y]|on|off
   torkwd status | stop
   torkwd update [--check] [--force]
+  torkwd intro [--no-motion]
   torkwd --version
 
 Commands:
@@ -152,6 +159,7 @@ Commands:
   debrid      link (login), check (status) or unlink (logout) a
               Real-Debrid account; on/off switches downloads through it
   doctor      read-only config, disk, state, and provider diagnostic
+  intro       play the Tork-w-Debrid intro again (any key stops it)
   proxy       configure or inspect strict SOCKS5 routing
   status      show the background transfer session (macOS/Linux)
   stop        save and stop the background transfer session
@@ -642,6 +650,7 @@ func run() error {
 	if *noMotion {
 		app.SetNoMotion(true)
 	}
+	app.SetVersion(resolveVersion()) // the intro plays once per version (J8.8)
 	if openTarget != nil {
 		if err := app.OpenTarget(*openTarget); err != nil {
 			return err
