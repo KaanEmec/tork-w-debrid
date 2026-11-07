@@ -20,7 +20,7 @@ const (
 	// apps, from the "Workflow for opensource apps" section of
 	// https://api.real-debrid.com/. The device flow trades it for a
 	// per-user client ID and secret.
-	OpenSourceClientID = "X3UBMIUKCKJTO"
+	OpenSourceClientID = "X245A4XAIBGVM"
 	// deviceGrantType is the grant for both the first exchange and refreshes.
 	deviceGrantType = "http://oauth.net/grant_type/device/1.0"
 )
@@ -133,7 +133,13 @@ func (o *OAuth) request(ctx context.Context, method, op, path string, query, for
 		return 0, &debrid.Error{Provider: ProviderName, Op: op, Kind: debrid.ErrUnavailable, Err: stripURL(err)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.StatusCode, parseError(op, resp.StatusCode, data)
+		e := parseError(op, resp.StatusCode, data)
+		// The REST error codes mean something else here: 9 on an OAuth
+		// endpoint is a refused client, not a lapsed premium.
+		if errors.Is(e.Kind, debrid.ErrNotPremium) {
+			e.Kind = nil
+		}
+		return resp.StatusCode, e
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {

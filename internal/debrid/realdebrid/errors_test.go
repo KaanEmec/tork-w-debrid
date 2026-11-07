@@ -60,9 +60,11 @@ func TestParseErrorMapsCodesAndStatuses(t *testing.T) {
 
 func TestHumanMessages(t *testing.T) {
 	cases := map[string]error{
-		"Real-Debrid: too many active downloads": parseError("op", 509, []byte(`{"error":"too_many_active_downloads","error_code":21}`)),
-		"Real-Debrid: premium expired":           parseError("op", 403, []byte(`{"error":"permission_denied","error_code":9}`)),
-		"Real-Debrid: torrent no longer exists":  parseError("op", 404, nil),
+		"Real-Debrid: too many active downloads":                           parseError("op", 509, []byte(`{"error":"too_many_active_downloads","error_code":21}`)),
+		"Real-Debrid: premium expired":                                     parseError("op", 403, []byte(`{"error":"permission_denied","error_code":9}`)),
+		"Real-Debrid: torrent no longer exists":                            parseError("op", 404, nil),
+		"Real-Debrid: service unavailable, try again later":                parseError("op", 503, nil),
+		"Real-Debrid: can't reach the server, check your network or proxy": &debrid.Error{Provider: ProviderName, Op: "op", Kind: debrid.ErrUnavailable, Err: errors.New("i/o timeout")},
 	}
 	for want, err := range cases {
 		if got := debrid.Message(fmt.Errorf("wrapped: %w", err)); got != want {

@@ -123,6 +123,8 @@ func Message(err error) string {
 		text = "torrent no longer exists"
 	case errors.Is(err, ErrRateLimited):
 		text = "too many requests, slowing down"
+	case errors.Is(err, ErrUnavailable) && de != nil && de.HTTPStatus == 0:
+		text = "can't reach the server, check your network or proxy"
 	case errors.Is(err, ErrUnavailable):
 		text = "service unavailable, try again later"
 	case de != nil && de.Message != "":
