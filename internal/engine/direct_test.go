@@ -22,7 +22,7 @@ import (
 )
 
 // newDirectTestEngine builds an engine downloading into a temp dir.
-func newDirectTestEngine(t *testing.T) *Engine {
+func newDirectTestEngine(t testing.TB) *Engine {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DOWNLOAD_DIR", filepath.Join(t.TempDir(), "Downloads"))
