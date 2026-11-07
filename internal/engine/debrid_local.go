@@ -513,7 +513,8 @@ func (e *Engine) debridLocalSnapshot(s *Snapshot, it *debridItem, now time.Time)
 		s.Note = it.localNote
 		return
 	case !started && !it.remoteVisible(now):
-		s.State = StateFetchingMeta // still "starting", like a torrent connecting
+		s.State = StateFetchingMeta // still starting, like a torrent connecting
+		s.Note = NoteDebridStarting
 		return
 	}
 	s.State = StateDownloading

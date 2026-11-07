@@ -152,6 +152,7 @@ func (e *Engine) ResumeDebrid(entry state.Entry) (metainfo.Hash, error) {
 		remoteID: entry.RemoteID, selected: slices.Clone(entry.RemoteFiles),
 		dataPath: entry.DataPath, savedLength: entry.Length,
 		wake: make(chan struct{}, 1), showRemote: true,
+		toldNotCached: true, // said in the run that started it
 	}
 	if it.dataPath != "" && !safePathWithin(dir, it.dataPath) {
 		it.dataPath = ""
