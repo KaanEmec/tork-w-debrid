@@ -30,6 +30,10 @@ func runIntro(args []string, stdoutTTY, stdinTTY bool, stderr io.Writer) error {
 		fmt.Fprintln(stderr, "tork: the intro needs a terminal; nothing to show")
 		return nil
 	}
+	if tui.DetectASCII() {
+		fmt.Fprintln(stderr, "torkwd: the intro needs a terminal with block characters; nothing to show")
+		return nil
+	}
 	motion := tui.MotionAllowed() && !*noMotion
 	if cfg, err := config.LoadReadOnly(); err == nil && !cfg.UI.Motion {
 		motion = false // Settings › Look › animations is off

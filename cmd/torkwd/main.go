@@ -553,6 +553,7 @@ func runAutopilot(args []string) error {
 	stopHealth := maybeCheckHealth(context.Background(), cfg, store, providers, eng, healthWarmup)
 	defer stopHealth()
 
+	tui.SetASCIIGlyphs(tui.DetectASCII())
 	app := tui.New(cfg, eng, agg, st, store)
 	app.ShowDownloads()
 	output := clipboard.NewOutput(os.Stdout)
@@ -646,6 +647,7 @@ func run() error {
 	stopHealth := maybeCheckHealth(context.Background(), cfg, store, providers, eng, healthWarmup)
 	defer stopHealth()
 
+	tui.SetASCIIGlyphs(tui.DetectASCII()) // no block or box characters: ASCII glyphs (J8.9)
 	app := tui.New(cfg, eng, agg, st, store)
 	if *noMotion {
 		app.SetNoMotion(true)

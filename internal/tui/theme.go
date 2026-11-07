@@ -196,6 +196,7 @@ type glyphSet struct {
 	filled   string // progress rail, done part
 	empty    string // progress rail, remaining part
 	star     string
+	ellipsis string // truncation mark
 	sep      string // header breadcrumb separator
 	spinner  []string
 	segOpen  string
@@ -207,14 +208,14 @@ type glyphSet struct {
 
 // The cloud is printed with U+FE0E so terminals keep it to text width.
 var unicodeGlyphs = glyphSet{
-	cloud: "☁︎", cursor: "▍", prompt: "❯", filled: "━", empty: "─", star: "★", sep: "›",
+	cloud: "☁︎", cursor: "▍", prompt: "❯", filled: "━", empty: "─", star: "★", ellipsis: "…", sep: "›",
 	spinner: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	segOpen: "▕", segDone: "█", segPart: "▓", segTodo: "░", segClose: "▏",
 }
 
 var asciiGlyphs = glyphSet{
 	ascii: true,
-	cloud: "RD", cursor: ">", prompt: ">", filled: "=", empty: "-", star: "*", sep: ">",
+	cloud: "RD", cursor: ">", prompt: ">", filled: "=", empty: "-", star: "*", ellipsis: "...", sep: ">",
 	spinner: []string{"|", "/", "-", "\\"},
 	segOpen: "[", segDone: "#", segPart: "=", segTodo: ".", segClose: "]",
 }

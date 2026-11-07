@@ -144,5 +144,5 @@ func truncate(s string, w int) string {
 	if w == 1 {
 		return ansi.Truncate(s, 1, "")
 	}
-	return ansi.Truncate(s, w, "…")
+	return ansi.Truncate(s, w, glyphs.ellipsis)
 }
