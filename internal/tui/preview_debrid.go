@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -452,9 +453,12 @@ func (a *App) startDebridPreviewDownload() tea.Cmd {
 	return tea.Batch(a.ensureTick(), a.showToast(queuedToast(p.name), toastOK, toastQuick))
 }
 
-// debridSelection turns the ticks into Real-Debrid file IDs. nil means
-// every file (sent as files=all). ok is false when the start has to wait for
-// Real-Debrid's list or the list had to be rebuilt.
+// debridSelection turns the ticks into Real-Debrid file IDs (J4.2). nil
+// means every file, sent as files=all: shorter, and nothing to get wrong. A
+// list from Real-Debrid carries its IDs; a list from the cache or a .torrent
+// is matched with mapSelection once Real-Debrid's list is there. ok is false
+// when the start has to wait for that list, or when a file could not be
+// matched and the preview was rebuilt from Real-Debrid's list.
 func (a *App) debridSelection() (ids []int, ok bool, cmd tea.Cmd) {
 	p := &a.preview
 	if !p.ready || len(p.excluded) == 0 {
@@ -466,6 +470,7 @@ func (a *App) debridSelection() (ids []int, ok bool, cmd tea.Cmd) {
 				ids = append(ids, p.remoteIDs[f.Index])
 			}
 		}
+		sort.Ints(ids)
 		return ids, true, nil
 	}
 	remote, ready := a.eng.DebridFiles(p.hash)
@@ -474,7 +479,11 @@ func (a *App) debridSelection() (ids []int, ok bool, cmd tea.Cmd) {
 		return nil, false, a.ensureTick()
 	}
 	p.startPending = false
-	return nil, false, a.adoptRemoteList(remote)
+	ids, err := mapSelection(p.files, remote, p.excluded)
+	if err != nil {
+		return nil, false, a.adoptRemoteList(remote)
+	}
+	return ids, true, nil
 }
 
 // adoptRemoteList rebuilds the preview from Real-Debrid's list when the
