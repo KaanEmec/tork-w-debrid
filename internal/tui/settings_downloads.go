@@ -37,10 +37,10 @@ func init() {
 	})
 }
 
-// downloadSettingRows lists the Downloads rows; J7.5 adds the connections
-// row after the folder.
+// downloadSettingRows lists the Downloads rows: the folder, then the
+// connections per debrid download (J7.5).
 func (a *App) downloadSettingRows() []settingRow {
-	return []settingRow{folderRow{}}
+	return []settingRow{folderRow{}, connectionsRow{}}
 }
 
 // loadFolderSettings reads download_dir as saved in config.yaml. When the
@@ -209,4 +209,96 @@ func equalFoldASCII(a, b string) bool {
 		}
 	}
 	return true
+}
+
+// connectionsRow is "connections per download  1  2  [4]  8  16" (J7.5):
+// how many connections one Real-Debrid file downloads with. ←→ steps through
+// the choices and saves at once; the line under it is the per-torrent cap
+// (debrid.max_total_connections).
+type connectionsRow struct{}
+
+func (connectionsRow) label() string { return "connections per download" }
+
+func (connectionsRow) value(a *App) string {
+	cur := a.cfg.Debrid.Connections
+	parts := make([]string, 0, len(config.DebridConnectionChoices))
+	for _, n := range config.DebridConnectionChoices {
+		if n == cur {
+			parts = append(parts, styleMatch.Render(fmt.Sprintf("[%d]", n)))
+		} else {
+			parts = append(parts, styleDim.Render(fmt.Sprint(n)))
+		}
+	}
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += "  "
+		}
+		out += p
+	}
+	if !containsInt(config.DebridConnectionChoices, cur) {
+		out += styleDim.Render(fmt.Sprintf("  (now %d)", cur))
+	}
+	return out
+}
+
+func (connectionsRow) hint(*App) string { return "←→" }
+
+func (connectionsRow) keys(*App) []keyHint {
+	return []keyHint{onStrip("←→", "connections")}
+}
+
+func (connectionsRow) note(a *App) string {
+	return styleDim.Render(fmt.Sprintf("up to %d per torrent", a.cfg.Debrid.MaxTotalConnections))
+}
+
+func (connectionsRow) update(a *App, key tea.KeyMsg) (bool, tea.Cmd) {
+	var step int
+	switch key.String() {
+	case "left", "h":
+		step = -1
+	case "right", "l":
+		step = 1
+	default:
+		return false, nil
+	}
+	n := stepChoice(config.DebridConnectionChoices, a.cfg.Debrid.Connections, step)
+	if n == a.cfg.Debrid.Connections {
+		return true, nil
+	}
+	if err := a.cfg.WriteDebridConnections(n); err != nil {
+		return true, a.showError("not saved: " + err.Error())
+	}
+	// New debrid transfers read it from the config; running ones pick it up
+	// the next time a connection claims a segment.
+	a.cfg.Debrid.Connections = n
+	return true, nil
+}
+
+// stepChoice moves from cur to the next choice in direction step, also from
+// a value that isn't one of the choices.
+func stepChoice(choices []int, cur, step int) int {
+	if step > 0 {
+		for _, c := range choices {
+			if c > cur {
+				return c
+			}
+		}
+		return cur
+	}
+	for i := len(choices) - 1; i >= 0; i-- {
+		if choices[i] < cur {
+			return choices[i]
+		}
+	}
+	return cur
+}
+
+func containsInt(list []int, v int) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }

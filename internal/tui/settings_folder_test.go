@@ -291,3 +291,34 @@ func TestFolderRowShowsDashDOverride(t *testing.T) {
 		t.Fatalf("override = %q, want %q", a.settings.folder.override, run)
 	}
 }
+
+func TestConnectionsRowStepsAndSaves(t *testing.T) {
+	a, cfg, _ := folderTestApp(t)
+	a.openSettings()
+	selectSettingRow(t, a, "connections per download")
+	view := ansi.Strip(a.View())
+	if !strings.Contains(view, "1  2  [4]  8  16") || !strings.Contains(view, "up to 8 per torrent") || !strings.Contains(view, "←→") {
+		t.Fatalf("connections row:\n%s", view)
+	}
+	a.updateSettings(key("right"))
+	if cfg.Debrid.Connections != 8 {
+		t.Fatalf("right moved to %d, want 8", cfg.Debrid.Connections)
+	}
+	if saved, _ := config.LoadReadOnlyFrom(cfg.Dir()); saved.Debrid.Connections != 8 {
+		t.Fatalf("saved connections = %d, want 8", saved.Debrid.Connections)
+	}
+	a.updateSettings(key("right"))
+	a.updateSettings(key("right")) // stays at the top choice
+	if cfg.Debrid.Connections != 16 {
+		t.Fatalf("connections = %d, want 16", cfg.Debrid.Connections)
+	}
+	for range 5 {
+		a.updateSettings(key("left"))
+	}
+	if cfg.Debrid.Connections != 1 {
+		t.Fatalf("connections = %d, want 1", cfg.Debrid.Connections)
+	}
+	if got := stepChoice(config.DebridConnectionChoices, 3, 1); got != 4 {
+		t.Fatalf("step up from 3 = %d", got)
+	}
+}

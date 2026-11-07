@@ -506,6 +506,9 @@ func LoadFrom(dir string) (*Config, error) {
 
 	cfg.dir = dir
 	mergeProviderDefaults(cfg, defaults)
+	if err := cfg.ValidateDebridConnections(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	cfg.DownloadDir = expandHome(cfg.DownloadDir)
 	if err := cfg.initProxyRuntime(); err != nil {
 		return nil, err
@@ -538,6 +541,9 @@ func LoadReadOnlyFrom(dir string) (*Config, error) {
 	}
 	cfg.dir = dir
 	mergeProviderDefaults(cfg, defaults)
+	if err := cfg.ValidateDebridConnections(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	cfg.DownloadDir = expandHome(cfg.DownloadDir)
 	if err := cfg.initProxyRuntime(); err != nil {
 		// A diagnostic load must be able to report a bad proxy URL; failing

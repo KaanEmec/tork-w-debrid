@@ -229,7 +229,7 @@ func settingsGoldenApp(width, height int) *App {
 	a.width, a.height = width, height
 	a.motion.noMotion = true
 	a.motion.animations = true // the switch reads on; the run still has no motion
-	a.cfg = &config.Config{DownloadDir: "~/Downloads/tork", Debrid: config.DebridConfig{Enabled: true}, UI: config.DefaultUIConfig()}
+	a.cfg = &config.Config{DownloadDir: "~/Downloads/tork", Debrid: config.DefaultDebridConfig(), UI: config.DefaultUIConfig()}
 	a.settings.folder = folderSettings{loaded: true, saved: "~/Downloads/tork", free: 412e9, freeOK: true}
 	a.settings.rd = rdSettings{
 		loaded: true, phase: rdLinked, haveAcct: true,
