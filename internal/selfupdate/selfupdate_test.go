@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// TestModuleMatchesGoMod keeps tork update pointed at the module this source
+// TestModuleMatchesGoMod keeps torkwd update pointed at the module this source
 // tree builds, so an upstream merge or a rename cannot leave it fetching
 // another repository.
 func TestModuleMatchesGoMod(t *testing.T) {
@@ -28,6 +28,18 @@ func TestModuleMatchesGoMod(t *testing.T) {
 		}
 	}
 	t.Fatal("go.mod has no module line")
+}
+
+// TestMainPackageExists keeps the package torkwd update installs in step with
+// the source tree: go install names the binary after cmd/<Binary>.
+func TestMainPackageExists(t *testing.T) {
+	if want := Module + "/cmd/torkwd"; mainPackage != want {
+		t.Fatalf("mainPackage = %q, want %q", mainPackage, want)
+	}
+	main := filepath.Join("..", "..", "cmd", Binary, "main.go")
+	if _, err := os.Stat(main); err != nil {
+		t.Fatalf("torkwd update installs %s, but %s is missing: %v", mainPackage, main, err)
+	}
 }
 
 func TestIsNewer(t *testing.T) {
@@ -182,7 +194,7 @@ func fakeGo(t *testing.T, latest string, calls *[]string) GoRunner {
 			if err := os.WriteFile(ro, []byte("x"), 0o444); err != nil {
 				return nil, err
 			}
-			return nil, os.WriteFile(filepath.Join(gobin, "tork"+exeSuffix()), []byte("built "+latest), 0o755)
+			return nil, os.WriteFile(filepath.Join(gobin, Binary+exeSuffix()), []byte("built "+latest), 0o755)
 		}
 		return nil, errors.New("unexpected go command")
 	}
@@ -192,7 +204,7 @@ func newTestUpdater(t *testing.T, current, latest string, calls *[]string) (*Upd
 	t.Helper()
 	installDir := t.TempDir()
 	scratch := t.TempDir()
-	exe := filepath.Join(installDir, "tork"+exeSuffix())
+	exe := filepath.Join(installDir, Binary+exeSuffix())
 	writeFile(t, exe, "running "+current)
 	var out bytes.Buffer
 	return &Updater{Current: current, Exe: exe, Go: fakeGo(t, latest, calls), TempDir: scratch, Out: &out}, exe, scratch

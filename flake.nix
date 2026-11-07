@@ -41,6 +41,7 @@
             inherit version vendorHash;
             buildGoModule = pkgs.buildGo126Module;
             source = self;
+            command = "torkwd";
           };
         in
         {
@@ -52,7 +53,7 @@
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/tork";
+          program = "${self.packages.${system}.default}/bin/torkwd";
         };
       });
 

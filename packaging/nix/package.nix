@@ -5,6 +5,8 @@
   writableTmpDirAsHomeHook,
   version ? "0.5.0",
   vendorHash ? "sha256-gQLqY3trLGP/2teQlR+px+/iIKyzEs90pi52ufRXufc=",
+  # The fork builds cmd/torkwd; upstream's release builds cmd/tork.
+  command ? "tork",
   source ? fetchFromGitHub {
     owner = "melqtx";
     repo = "tork";
@@ -21,7 +23,7 @@ buildGoModule rec {
 
   inherit vendorHash;
 
-  subPackages = [ "cmd/tork" ];
+  subPackages = [ "cmd/${command}" ];
 
   ldflags = [
     "-s"
@@ -35,7 +37,7 @@ buildGoModule rec {
     description = "Terminal torrent search and download client";
     homepage = "https://github.com/melqtx/tork";
     license = lib.licenses.mit;
-    mainProgram = "tork";
+    mainProgram = command;
     platforms = lib.platforms.unix;
   };
 }

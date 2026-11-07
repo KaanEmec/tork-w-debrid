@@ -87,7 +87,7 @@ func main() {
 			printHelp()
 			return
 		case "-v", "--version", "version":
-			fmt.Println("tork " + resolveVersion())
+			fmt.Println("torkwd " + resolveVersion())
 			return
 		}
 	}
@@ -123,17 +123,17 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Print(`tork - terminal torrent search and download
+	fmt.Print(`torkwd - terminal torrent search and download
 
 Usage:
-  tork [--evil] [-d DIR] [MAGNET | INFOHASH | TORRENT_URL | TORRENT_FILE]
-  tork [--evil] [-d DIR] --torrent-url URL
-  tork autopilot [--dry-run] [--headless] [--yes] [--evil] [-n N] [-d DIR] "query"
-  tork doctor [--record] [--engine] [--proxy-check] [-d DIR]
-  tork proxy tor|set [SOCKS5_URL]|off|status
-  tork status | stop
-  tork update [--check] [--force]
-  tork --version
+  torkwd [--evil] [-d DIR] [MAGNET | INFOHASH | TORRENT_URL | TORRENT_FILE]
+  torkwd [--evil] [-d DIR] --torrent-url URL
+  torkwd autopilot [--dry-run] [--headless] [--yes] [--evil] [-n N] [-d DIR] "query"
+  torkwd doctor [--record] [--engine] [--proxy-check] [-d DIR]
+  torkwd proxy tor|set [SOCKS5_URL]|off|status
+  torkwd status | stop
+  torkwd update [--check] [--force]
+  torkwd --version
 
 Commands:
   autopilot   search, explain the best choices, then queue them
@@ -156,7 +156,7 @@ Flags:
 
 The interactive UI stores config and state under ~/.tork and downloads into
 your OS Downloads folder by default. On macOS/Linux, closing the UI leaves
-downloads and seeding running. Reopen tork to reconnect; use tork stop to stop.
+downloads and seeding running. Reopen torkwd to reconnect; use torkwd stop to stop.
 F1 home · F2 results · F3 downloads · F4 sources. Press H for health history.
 `)
 }
@@ -189,7 +189,7 @@ func runDoctor(args []string) (failed bool, err error) {
 	defer stop()
 
 	store := health.OpenReadOnly(cfg.HealthPath())
-	fmt.Printf("tork %s · %s\n\n", resolveVersion(), cfg.Dir())
+	fmt.Printf("torkwd %s · %s\n\n", resolveVersion(), cfg.Dir())
 	var engineProbe health.EngineProbe
 	if *deepEngine {
 		engineProbe = probeEngine
@@ -220,7 +220,7 @@ func runUpdate(args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: tork update [--check] [--force]")
+		return errors.New("usage: torkwd update [--check] [--force]")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -238,7 +238,7 @@ func runUpdate(args []string) error {
 		// refuses to attach a newer build, but say so up front.
 		if cfg, err := loadSessionConfig("", true); err == nil {
 			if _, err := session.Control(cfg.Dir(), "status"); err == nil {
-				fmt.Println("a background session is still running the previous version; run tork stop, then reopen tork")
+				fmt.Println("a background session is still running the previous version; run torkwd stop, then reopen torkwd")
 			}
 		}
 	}
@@ -247,12 +247,12 @@ func runUpdate(args []string) error {
 
 func runProxy(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: tork proxy tor|set [SOCKS5_URL]|off|status")
+		return errors.New("usage: torkwd proxy tor|set [SOCKS5_URL]|off|status")
 	}
 	switch args[0] {
 	case "tor":
 		if len(args) != 1 {
-			return errors.New("usage: tork proxy tor")
+			return errors.New("usage: torkwd proxy tor")
 		}
 		return saveProxy("socks5://127.0.0.1:9050")
 	case "set":
@@ -263,25 +263,25 @@ func runProxy(args []string) error {
 		return saveProxy(raw)
 	case "off":
 		if len(args) != 1 {
-			return errors.New("usage: tork proxy off")
+			return errors.New("usage: torkwd proxy off")
 		}
 		update, err := config.UpdateProxy("")
 		if err != nil {
 			return err
 		}
 		if update.Changed {
-			fmt.Println("proxy disabled; restart tork to apply it (run tork stop first if a background session is running)")
+			fmt.Println("proxy disabled; restart torkwd to apply it (run torkwd stop first if a background session is running)")
 		} else {
 			fmt.Println("proxy is already disabled")
 		}
 		return nil
 	case "status":
 		if len(args) != 1 {
-			return errors.New("usage: tork proxy status")
+			return errors.New("usage: torkwd proxy status")
 		}
 		return printProxyStatus()
 	default:
-		return errors.New("usage: tork proxy tor|set [SOCKS5_URL]|off|status")
+		return errors.New("usage: torkwd proxy tor|set [SOCKS5_URL]|off|status")
 	}
 }
 
@@ -289,7 +289,7 @@ func proxyURLFromArgs(args []string) (string, error) {
 	switch len(args) {
 	case 0:
 		if !term.IsTerminal(os.Stdin.Fd()) {
-			return "", errors.New("run 'tork proxy set SOCKS5_URL' or enter a credentialed URL from an interactive terminal")
+			return "", errors.New("run 'torkwd proxy set SOCKS5_URL' or enter a credentialed URL from an interactive terminal")
 		}
 		fmt.Fprint(os.Stderr, "SOCKS5 URL (hidden input): ")
 		input, err := term.ReadPassword(os.Stdin.Fd())
@@ -309,11 +309,11 @@ func proxyURLFromArgs(args []string) (string, error) {
 			return "", err
 		}
 		if runtime.HasCredentials() {
-			return "", errors.New("for a credentialed proxy, run 'tork proxy set' and enter the URL privately")
+			return "", errors.New("for a credentialed proxy, run 'torkwd proxy set' and enter the URL privately")
 		}
 		return raw, nil
 	default:
-		return "", errors.New("usage: tork proxy set [SOCKS5_URL]")
+		return "", errors.New("usage: torkwd proxy set [SOCKS5_URL]")
 	}
 }
 
@@ -327,8 +327,8 @@ func saveProxy(raw string) error {
 		return nil
 	}
 	fmt.Printf("proxy configured: SOCKS5 %s · strict TCP-only torrent mode\n", update.Endpoint)
-	fmt.Println("verify it with: tork doctor --proxy-check")
-	fmt.Println("restart tork to apply changes; run tork stop first if a background session is running")
+	fmt.Println("verify it with: torkwd doctor --proxy-check")
+	fmt.Println("restart torkwd to apply changes; run torkwd stop first if a background session is running")
 	return nil
 }
 
@@ -338,11 +338,11 @@ func printProxyStatus() error {
 		return err
 	}
 	if err := cfg.ProxyError(); err != nil {
-		return fmt.Errorf("proxy config is invalid: %v (fix with 'tork proxy set SOCKS5_URL' or 'tork proxy off')", err)
+		return fmt.Errorf("proxy config is invalid: %v (fix with 'torkwd proxy set SOCKS5_URL' or 'torkwd proxy off')", err)
 	}
 	runtime := cfg.ProxyRuntime()
 	if runtime == nil || !runtime.Enabled() {
-		fmt.Println("proxy: not configured (run 'tork proxy tor' to route through Tor)")
+		fmt.Println("proxy: not configured (run 'torkwd proxy tor' to route through Tor)")
 		return nil
 	}
 	secure, err := cfg.ProxyCredentialConfigSecure()
@@ -350,7 +350,7 @@ func printProxyStatus() error {
 		return err
 	}
 	fmt.Printf("proxy: SOCKS5 %s · strict TCP-only torrent mode\n", runtime.Endpoint())
-	fmt.Println("verify it with: tork doctor --proxy-check")
+	fmt.Println("verify it with: torkwd doctor --proxy-check")
 	if !secure {
 		return errors.New("proxy credentials require config.yaml mode 0600")
 	}
@@ -433,7 +433,7 @@ func runAutopilot(args []string) error {
 	}
 	raw := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if raw == "" {
-		return errors.New(`usage: tork autopilot [-n N] [--max-size 8GB] [--dry-run] [--headless] [--yes] "query"`)
+		return errors.New(`usage: torkwd autopilot [-n N] [--max-size 8GB] [--dry-run] [--headless] [--yes] "query"`)
 	}
 	var maxSizeBytes int64
 	if strings.TrimSpace(*maxSize) != "" {
@@ -553,7 +553,7 @@ func confirmAutopilot(plan autopilot.Plan) bool {
 }
 
 func run() error {
-	fs := flag.NewFlagSet("tork", flag.ContinueOnError)
+	fs := flag.NewFlagSet("torkwd", flag.ContinueOnError)
 	dlDir := fs.String("download-dir", "", "download directory (default: your OS Downloads/tork)")
 	fs.StringVar(dlDir, "d", "", "shorthand for --download-dir")
 	evil := fs.Bool("evil", false, "evil mode: never seed after downloads complete")
@@ -636,7 +636,7 @@ func run() error {
 
 func resolveOpenTarget(args []string, explicitURL string) (*intake.Target, error) {
 	if len(args) > 1 || (explicitURL != "" && len(args) != 0) {
-		return nil, errors.New("usage: tork [--evil] [-d DIR] [MAGNET | INFOHASH | TORRENT_URL | TORRENT_FILE]")
+		return nil, errors.New("usage: torkwd [--evil] [-d DIR] [MAGNET | INFOHASH | TORRENT_URL | TORRENT_FILE]")
 	}
 	if explicitURL != "" {
 		target, err := intake.ExplicitTorrentURL(explicitURL)

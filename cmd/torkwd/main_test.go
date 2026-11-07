@@ -15,7 +15,7 @@ func TestProxyURLFromArgsKeepsCredentialsOutOfCommandLine(t *testing.T) {
 		t.Fatalf("generic URL = %q, %v", raw, err)
 	}
 	_, err = proxyURLFromArgs([]string{"socks5://alice:secret@127.0.0.1:1080"})
-	if err == nil || !strings.Contains(err.Error(), "run 'tork proxy set'") {
+	if err == nil || !strings.Contains(err.Error(), "run 'torkwd proxy set'") {
 		t.Fatalf("credentialed argument error = %v", err)
 	}
 	if strings.Contains(err.Error(), "alice") || strings.Contains(err.Error(), "secret") {

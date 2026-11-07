@@ -301,7 +301,7 @@ func New(cfg *config.Config) (*Engine, error) {
 			// a lock timeout means another instance holds the data dir - do
 			// NOT reset it, that would corrupt the running download.
 			return nil, fmt.Errorf("piece database is locked - another tork owns the transfers "+
-				"(check `tork status`; use `tork stop` before foreground/autopilot runs, or close the older foreground instance). db: %s", dbPath)
+				"(check `torkwd status`; use `torkwd stop` before foreground/autopilot runs, or close the older foreground instance). db: %s", dbPath)
 		}
 		// otherwise the db is corrupt: preserve it and start fresh (downloads
 		// simply re-verify against data on disk).

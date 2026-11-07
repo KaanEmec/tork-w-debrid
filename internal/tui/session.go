@@ -48,7 +48,7 @@ func (a *App) DetachSession() tea.Cmd {
 // list: only downloads the user already approved are persisted.
 func (a *App) CheckpointSession() error {
 	if a.pendingAdds > 0 {
-		return fmt.Errorf("a download is still being queued; retry tork stop in a moment")
+		return fmt.Errorf("a download is still being queued; retry torkwd stop in a moment")
 	}
 	a.downloads.snaps = a.eng.Snapshots()
 	for _, snap := range a.downloads.snaps {

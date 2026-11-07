@@ -145,13 +145,13 @@ func checkProxy(cfg *config.Config) Check {
 	c := Check{Name: "proxy"}
 	if err := cfg.ProxyError(); err != nil {
 		c.Status = StatusFail
-		c.Detail = fmt.Sprintf("invalid proxy config: %v (fix with 'tork proxy set' or 'tork proxy off')", err)
+		c.Detail = fmt.Sprintf("invalid proxy config: %v (fix with 'torkwd proxy set' or 'torkwd proxy off')", err)
 		return c
 	}
 	runtime := cfg.ProxyRuntime()
 	if runtime == nil || !runtime.Enabled() {
 		c.Status = StatusOK
-		c.Detail = "not configured (run 'tork proxy tor' to route through Tor)"
+		c.Detail = "not configured (run 'torkwd proxy tor' to route through Tor)"
 		return c
 	}
 	secure, err := cfg.ProxyCredentialConfigSecure()

@@ -160,13 +160,13 @@ func runSessionDaemon(args []string) error {
 	hooks := session.Hooks{
 		Attach: func(launch session.Launch) (tea.Cmd, error) {
 			if launch.Build != "" && launch.Build != build {
-				return nil, errors.New("the background session uses an older build; run tork stop, then reopen tork")
+				return nil, errors.New("the background session uses an older build; run torkwd stop, then reopen torkwd")
 			}
 			if launch.DownloadDir != "" && filepath.Clean(launch.DownloadDir) != filepath.Clean(cfg.DownloadDir) {
-				return nil, errors.New("the background session uses a different download directory; run tork stop before changing -d")
+				return nil, errors.New("the background session uses a different download directory; run torkwd stop before changing -d")
 			}
 			if launch.Evil && cfg.SeedAfterComplete {
-				return nil, errors.New("run tork stop before starting a new --evil session")
+				return nil, errors.New("run torkwd stop before starting a new --evil session")
 			}
 			return app.AttachSession(launch.Target)
 		},
@@ -184,7 +184,7 @@ func runSessionControl(op string, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: tork %s [--config-dir DIR]", op)
+		return fmt.Errorf("usage: torkwd %s [--config-dir DIR]", op)
 	}
 	cfg, err := loadSessionConfig(*dir, true)
 	if err != nil {

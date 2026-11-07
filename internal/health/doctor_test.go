@@ -141,7 +141,7 @@ func TestDoctorAdvertisesProxySetupWhenDisabled(t *testing.T) {
 	cfg := testConfig(t)
 	rep := RunDoctor(context.Background(), cfg, []provider.Provider{fakeProvider{name: "good", results: 1}}, OpenReadOnly(cfg.HealthPath()), nil)
 	c := findCheck(t, rep, "proxy")
-	if c.Status != StatusOK || !strings.Contains(c.Detail, "tork proxy tor") {
+	if c.Status != StatusOK || !strings.Contains(c.Detail, "torkwd proxy tor") {
 		t.Fatalf("disabled proxy check = %+v", c)
 	}
 }

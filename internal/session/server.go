@@ -157,7 +157,7 @@ func (m *ownerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.peer == nil || m.peer != msg.peer {
 			return m, nil
 		}
-		m.peer.send(Frame{Quit: true, Info: "UI closed. Downloads and seeding continue in the background. Reopen tork to reconnect; use tork stop to stop transfers."})
+		m.peer.send(Frame{Quit: true, Info: "UI closed. Downloads and seeding continue in the background. Reopen torkwd to reconnect; use torkwd stop to stop transfers."})
 		m.peer = nil
 		cancelClipboard := m.cancelClipboard()
 		if m.hooks.Detach != nil {

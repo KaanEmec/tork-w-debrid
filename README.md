@@ -1,11 +1,12 @@
 # tork-w-debrid
 
 > A fork of [melqtx/tork](https://github.com/melqtx/tork). It tracks upstream
-> and adds `tork update` (self-update from source) and more built-in sources
+> and adds `torkwd update` (self-update from source) and more built-in sources
 > ([melqtx/tork#35](https://github.com/melqtx/tork/pull/35)), with debrid
 > support planned. Its Go module is `github.com/kaanemec/tork-w-debrid`, so
-> `go install` and `tork update` use this fork. The command is still `tork`.
-> The Homebrew, AUR and Nix packages install upstream tork, not this fork.
+> `go install` and `torkwd update` use this fork. The command is `torkwd`, so
+> it can sit beside upstream `tork`; both share the `~/.tork` config. The
+> Homebrew, AUR and Nix packages install upstream tork, not this fork.
 
 ```
  /\_/\
@@ -30,7 +31,7 @@ actual swarm, and keep downloads in one calm little terminal app.
   relink it from the downloads screen.
 - Browse and grab current official Linux ISOs from Ubuntu, Debian, Fedora,
   Arch, NixOS, Proxmox, and more. No sketchy mirror hunting.
-- Run `tork doctor` when a provider or local setup feels off, and use the swarm
+- Run `torkwd doctor` when a provider or local setup feels off, and use the swarm
   compass to see whether your sources and downloads are healthy over time.
 
 ![tork search results](docs/results.png)
@@ -38,14 +39,14 @@ actual swarm, and keep downloads in one calm little terminal app.
 ## Install
 
 ```sh
-go install github.com/kaanemec/tork-w-debrid/cmd/tork@latest    # Go 1.26.10+
+go install github.com/kaanemec/tork-w-debrid/cmd/torkwd@latest    # Go 1.26.10+
 ```
 
-The binary is still called `tork`. If Go on macOS is picking Nix's compiler,
+This installs a binary called `torkwd`. If Go on macOS is picking Nix's compiler,
 use Apple Clang for the install:
 
 ```sh
-CC=/usr/bin/clang CXX=/usr/bin/clang++ go install github.com/kaanemec/tork-w-debrid/cmd/tork@latest
+CC=/usr/bin/clang CXX=/usr/bin/clang++ go install github.com/kaanemec/tork-w-debrid/cmd/torkwd@latest
 ```
 
 Upstream's packages (`brew tap melqtx/tap && brew install tork`, `yay -S tork`,
@@ -56,20 +57,20 @@ Upstream's packages (`brew tap melqtx/tap && brew install tork`, `yay -S tork`,
 Installs made with `go install` or from source can update themselves:
 
 ```sh
-tork update           # or: tork -update / tork --update
-tork update --check   # only report whether a newer release exists
-tork update --force   # rebuild the latest release even if already current
+torkwd update           # or: torkwd -update / torkwd --update
+torkwd update --check   # only report whether a newer release exists
+torkwd update --force   # rebuild the latest release even if already current
 ```
 
-`tork update` asks the Go module system for the newest tagged release of
+`torkwd update` asks the Go module system for the newest tagged release of
 `github.com/kaanemec/tork-w-debrid` (this fork, never upstream; while the fork
 has no tags, that is the newest commit on `main`), builds it from source with `go install` (so the source is verified against
 sum.golang.org), and swaps the new binary in for the running one. Every
 download, cache, and intermediate file lives in one temporary directory that
 is removed afterwards. It needs Go 1.26.10+ on `PATH`. Homebrew, AUR, and Nix
 installs are left to their package manager. On Windows the previous binary is
-renamed to `tork.exe.old` while it is still running and deleted the next time
-tork starts.
+renamed to `torkwd.exe.old` while it is still running and deleted the next time
+torkwd starts.
 
 ## Build from source
 
@@ -77,28 +78,28 @@ Building tork requires Go 1.26.10 or newer. From the repository root, run it
 directly without creating a binary:
 
 ```sh
-go run ./cmd/tork
+go run ./cmd/torkwd
 ```
 
 Or build and run a local binary:
 
 ```sh
-go build -o ./bin/tork ./cmd/tork
-./bin/tork
+go build -o ./bin/torkwd ./cmd/torkwd
+./bin/torkwd
 ```
 
 Config lives in `~/.tork/`; downloads land in `~/Downloads/tork` (change with
-`tork -d DIR`).
+`torkwd -d DIR`).
 
 Already have a torrent? Paste its magnet link, bare infohash, local `.torrent`
 path, or `.torrent` URL into the same home search box. To go straight to the
 quiet file preview:
 
 ```sh
-tork 'magnet:?xt=urn:btih:…'
-tork ~/Downloads/linux.iso.torrent
-tork 'https://example.org/linux.iso.torrent'
-tork --torrent-url 'https://example.org/download?id=123'
+torkwd 'magnet:?xt=urn:btih:…'
+torkwd ~/Downloads/linux.iso.torrent
+torkwd 'https://example.org/linux.iso.torrent'
+torkwd --torrent-url 'https://example.org/download?id=123'
 ```
 
 Nothing starts downloading until you confirm it. `enter` takes whatever is
@@ -165,18 +166,18 @@ verified.
 For the usual local Tor setup, one command is enough:
 
 ```sh
-tork proxy tor
-tork doctor --proxy-check
+torkwd proxy tor
+torkwd doctor --proxy-check
 ```
 
-`tork proxy status` shows the redacted endpoint and strict-mode limits without
+`torkwd proxy status` shows the redacted endpoint and strict-mode limits without
 making a network request. To use another unauthenticated SOCKS5 proxy:
 
 ```sh
-tork proxy set socks5://127.0.0.1:1080
+torkwd proxy set socks5://127.0.0.1:1080
 ```
 
-For an authenticated endpoint, run `tork proxy set` without an argument and
+For an authenticated endpoint, run `torkwd proxy set` without an argument and
 enter the URL through hidden terminal input, so it never appears in shell
 history or a process list. You can also configure tork by hand:
 
@@ -190,7 +191,7 @@ Username and password are optional and must be URL-encoded. For Tor, the usual
 local endpoint is `socks5://127.0.0.1:9050`.
 
 Credentials require `~/.tork/config.yaml` to be a regular file with mode
-`0600`. A normal tork launch tightens an insecure regular config once; `tork
+`0600`. A normal tork launch tightens an insecure regular config once; `torkwd
 doctor` stays read-only and reports the problem instead.
 
 Proxy mode is strict: searches, ISO requests, HTTP trackers, and outgoing TCP
@@ -203,7 +204,7 @@ falls back to a direct connection.
 
 ## Keep an eye on it
 
-`tork doctor` is read-only by default and checks config, disk, state, cached
+`torkwd doctor` is read-only by default and checks config, disk, state, cached
 metadata, and provider reachability. Add `--engine` for an opt-in listener
 check, `--record` to save provider results in `~/.tork/health.json`, or
 `--proxy-check` to ask the Tor Project's check service what egress IP it sees
@@ -351,7 +352,7 @@ and its downloads continue to use Tork's configured route.
 
 The screen shows checks from the current session, or the latest saved health
 check for a source when available. Individual source tests are kept in memory;
-`tork doctor --record` and the health screen retain their existing history flow.
+`torkwd doctor --record` and the health screen retain their existing history flow.
 To run live metadata-only probes of built-ins without starting a download engine
 or editing your config:
 
@@ -387,22 +388,22 @@ wordmark/header above its search area.
 On macOS and Linux, the interactive UI connects to a persistent local session.
 Closing the UI with `^c` (or `q` where offered), closing the terminal, or losing
 the terminal connection leaves approved downloads and seeding running. Reopen
-`tork` to reconnect to the same search, selection, and downloads. Pending previews
+`torkwd` to reconnect to the same search, selection, and downloads. Pending previews
 still require approval; detaching never starts downloading their files.
 
 ```sh
-tork          # start or reconnect to the UI
-tork status   # check the background session without opening the UI
-tork stop     # save state and stop transfers, keeping downloaded files
+torkwd          # start or reconnect to the UI
+torkwd status   # check the background session without opening the UI
+torkwd stop     # save state and stop transfers, keeping downloaded files
 ```
 
 One terminal can attach at a time. The worker uses a user-private Unix socket;
 it does not expose a remote-control TCP port. It owns the engine and resume state
-until `tork stop`, and saves progress while the UI is closed. After stopping or
-rebooting, start `tork` to resume saved downloads; this does not install an OS
+until `torkwd stop`, and saves progress while the UI is closed. After stopping or
+rebooting, start `torkwd` to resume saved downloads; this does not install an OS
 startup service. The computer must stay awake for transfers to run.
 
-Use `tork --foreground` for the previous behavior (closing the UI stops transfers).
+Use `torkwd --foreground` for the previous behavior (closing the UI stops transfers).
 Windows currently retains that foreground behavior. Stop the background session
 before running foreground/autopilot transfers, changing `-d` or `--evil`, changing
 proxy/engine settings, or testing a rebuilt binary. `--evil` applies to new downloads
@@ -478,8 +479,8 @@ before retrying.
 Describe what you want and let the cat make a plan:
 
 ```sh
-tork autopilot "all breaking bad seasons 1080p under 40GB"
-tork autopilot --dry-run --min-seeders 20 "dune 2024 2160p"
+torkwd autopilot "all breaking bad seasons 1080p under 40GB"
+torkwd autopilot --dry-run --min-seeders 20 "dune 2024 2160p"
 ```
 
 Autopilot shows its picks, total known size, reasons, and a summary of rejected

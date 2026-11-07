@@ -28,7 +28,12 @@ import (
 // Module is the module path tork is published under.
 const Module = "github.com/kaanemec/tork-w-debrid"
 
-const mainPackage = Module + "/cmd/tork"
+// Binary is the name of the installed executable. go install names it after
+// the main package directory, so cmd/torkwd builds torkwd (torkwd.exe on
+// Windows) and the fork can sit beside upstream tork.
+const Binary = "torkwd"
+
+const mainPackage = Module + "/cmd/" + Binary
 
 // GoRunner runs the go command in dir with env appended to the process
 // environment and returns its standard output.
@@ -69,7 +74,7 @@ type Result struct {
 func New(current string, out io.Writer) (*Updater, error) {
 	goBin, err := exec.LookPath("go")
 	if err != nil {
-		return nil, errors.New("tork update builds the new release from source and needs Go 1.26.10 or newer on PATH (https://go.dev/dl)")
+		return nil, errors.New("torkwd update builds the new release from source and needs Go 1.26.10 or newer on PATH (https://go.dev/dl)")
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -133,7 +138,7 @@ func (u *Updater) Run(ctx context.Context, opts Options) (res Result, err error)
 
 	if opts.CheckOnly {
 		if res.Available {
-			u.printf("an update is available; run tork update to install it\n")
+			u.printf("an update is available; run torkwd update to install it\n")
 		} else {
 			u.printf("already up to date\n")
 		}
@@ -148,7 +153,7 @@ func (u *Updater) Run(ctx context.Context, opts Options) (res Result, err error)
 	if _, err := u.Go(ctx, work, env, "install", "-trimpath", mainPackage+"@"+latest); err != nil {
 		return res, fmt.Errorf("build %s: %w", latest, err)
 	}
-	built := filepath.Join(work, "bin", "tork"+exeSuffix())
+	built := filepath.Join(work, "bin", Binary+exeSuffix())
 	if _, err := os.Stat(built); err != nil {
 		return res, fmt.Errorf("build %s: no binary produced: %w", latest, err)
 	}
@@ -156,7 +161,7 @@ func (u *Updater) Run(ctx context.Context, opts Options) (res Result, err error)
 		return res, fmt.Errorf("install %s over %s: %w", latest, u.Exe, err)
 	}
 	res.Updated = true
-	u.printf("updated tork %s → %s (%s)\n", u.Current, latest, u.Exe)
+	u.printf("updated torkwd %s → %s (%s)\n", u.Current, latest, u.Exe)
 	return res, nil
 }
 
