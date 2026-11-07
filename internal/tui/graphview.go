@@ -9,8 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 // group clusters results that are the same content at the same quality across

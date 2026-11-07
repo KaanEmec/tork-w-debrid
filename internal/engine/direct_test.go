@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/melqtx/tork/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
 )
 
 // newDirectTestEngine builds an engine downloading into a temp dir.

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/anacrolix/torrent"
-	"github.com/melqtx/tork/internal/intake"
+	"github.com/kaanemec/tork-w-debrid/internal/intake"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

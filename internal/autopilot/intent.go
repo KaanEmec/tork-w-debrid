@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 // Intent is the heuristic interpretation of an autopilot request.

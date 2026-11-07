@@ -9,8 +9,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 type resultStatusProvider string

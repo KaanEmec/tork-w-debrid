@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/isos"
+	"github.com/kaanemec/tork-w-debrid/internal/isos"
 )
 
 // isosModel is the Linux-ISO shelf shown on the home screen: a curated list of

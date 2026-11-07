@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/melqtx/tork/internal/autopilot"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/autopilot"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 // canaryQuery is a term every general torrent index has plenty of, so a zero

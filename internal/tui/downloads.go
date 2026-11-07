@@ -19,10 +19,10 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/anacrolix/torrent/metainfo"
-	"github.com/melqtx/tork/internal/clipboard"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/session"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/session"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 // Desktop handoff. "reveal" shows a download in the platform's file manager;

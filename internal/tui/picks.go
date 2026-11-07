@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 var resolutionOrder = []rank.Resolution{rank.Res1080, rank.Res2160, rank.Res720, rank.Res576, rank.Res480, rank.ResUnknown}

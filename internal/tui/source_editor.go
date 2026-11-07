@@ -9,10 +9,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/health"
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/sources"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/health"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/sources"
 )
 
 type sourceEditor struct {

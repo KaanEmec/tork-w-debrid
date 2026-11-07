@@ -1,4 +1,4 @@
-module github.com/melqtx/tork
+module github.com/kaanemec/tork-w-debrid
 
 go 1.26.10
 

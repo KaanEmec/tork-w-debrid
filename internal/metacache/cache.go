@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/intake"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/intake"
 )
 
 const (

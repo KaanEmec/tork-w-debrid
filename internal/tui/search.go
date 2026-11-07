@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/melqtx/tork/internal/intake"
+	"github.com/kaanemec/tork-w-debrid/internal/intake"
 )
 
 // homeDest is a destination on the front-page menu.

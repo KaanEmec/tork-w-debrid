@@ -6,9 +6,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/anacrolix/torrent/metainfo"
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 // Search messages carry the generation that created them. A cancelled search

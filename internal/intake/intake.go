@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 const MaxTorrentBytes int64 = 16 << 20

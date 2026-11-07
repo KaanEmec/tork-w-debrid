@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
 )
 
 func navigationApp() *App {

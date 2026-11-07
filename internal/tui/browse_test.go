@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 	"github.com/muesli/termenv"
 )
 

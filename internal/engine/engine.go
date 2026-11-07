@@ -23,9 +23,9 @@ import (
 	"github.com/anacrolix/torrent/storage"
 	"golang.org/x/time/rate"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/intake"
-	"github.com/melqtx/tork/internal/metacache"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/intake"
+	"github.com/kaanemec/tork-w-debrid/internal/metacache"
 )
 
 type TorrentState int

@@ -1,4 +1,11 @@
-# tork
+# tork (tork-w-debrid fork)
+
+> This is a fork of [melqtx/tork](https://github.com/melqtx/tork). It tracks
+> upstream and adds `tork update` (self-update from source) and more built-in
+> sources ([melqtx/tork#35](https://github.com/melqtx/tork/pull/35)). Its Go
+> module is `github.com/kaanemec/tork-w-debrid`, so `go install` and
+> `tork update` use this fork. The Homebrew, AUR and Nix packages install
+> upstream tork, not this fork.
 
 ```
  /\_/\
@@ -31,17 +38,18 @@ actual swarm, and keep downloads in one calm little terminal app.
 ## Install
 
 ```sh
-brew tap melqtx/tap && brew install tork             # macOS (Homebrew)
-yay -S tork                                          # Arch (AUR)
-nix run github:melqtx/tork                           # Nix
-go install github.com/melqtx/tork/cmd/tork@latest    # Go 1.26.10+
+go install github.com/kaanemec/tork-w-debrid/cmd/tork@latest    # Go 1.26.10+
 ```
 
-If Go on macOS is picking Nix's compiler, use Apple Clang for the install:
+The binary is still called `tork`. If Go on macOS is picking Nix's compiler,
+use Apple Clang for the install:
 
 ```sh
-CC=/usr/bin/clang CXX=/usr/bin/clang++ go install github.com/melqtx/tork/cmd/tork@latest
+CC=/usr/bin/clang CXX=/usr/bin/clang++ go install github.com/kaanemec/tork-w-debrid/cmd/tork@latest
 ```
+
+Upstream's packages (`brew tap melqtx/tap && brew install tork`, `yay -S tork`,
+`nix run github:melqtx/tork`) install upstream tork instead of this fork.
 
 ## Update
 

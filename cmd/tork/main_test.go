@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 func TestProxyURLFromArgsKeepsCredentialsOutOfCommandLine(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 // fakeProvider answers a canary search however the test wants.

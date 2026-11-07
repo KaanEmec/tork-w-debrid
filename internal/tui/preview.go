@@ -10,8 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/anacrolix/torrent/metainfo"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 // previewModel is the magnet sandbox: inspect a torrent's files and choose

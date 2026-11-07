@@ -13,8 +13,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/melqtx/tork/internal/proxy"
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/proxy"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 type ProviderConfig struct {

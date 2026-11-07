@@ -5,8 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/intake"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/intake"
 )
 
 // AttachSession restores the terminal, retaining the model's search, selection,

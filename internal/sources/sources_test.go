@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 func TestConfiguredBuiltinAdaptersSearchAndResolve(t *testing.T) {

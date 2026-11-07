@@ -9,11 +9,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/health"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/health"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 type screen int

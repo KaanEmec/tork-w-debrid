@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/health"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/health"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 // Opt-in smoke check: search metadata only, no engine, downloads, user config

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/session"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/session"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 func TestBackgroundPreviewStillNeedsApproval(t *testing.T) {

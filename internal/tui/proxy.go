@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/proxy"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/proxy"
 )
 
 const proxyCheckInterval = 5 * time.Minute

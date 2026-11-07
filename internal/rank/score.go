@@ -3,7 +3,7 @@ package rank
 import (
 	"math"
 
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 // Weights tune the scoring formula. Persisted in config.yaml under `ranking:`.

@@ -7,8 +7,8 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 // Pick is a chosen download with the reasoning behind it.

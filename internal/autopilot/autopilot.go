@@ -12,11 +12,11 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 // ShortReason turns a raw provider/network error into a calm, human phrase

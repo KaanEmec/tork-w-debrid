@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/melqtx/tork/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
 )
 
 func TestBuildFileTreeAndCollapse(t *testing.T) {

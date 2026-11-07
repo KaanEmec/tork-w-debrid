@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
 )
 
 func TestReadableReleaseTitlePreservesIdentity(t *testing.T) {

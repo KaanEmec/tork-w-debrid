@@ -14,12 +14,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/health"
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/sources"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/health"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/sources"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 func sourcesTestApp(t *testing.T) *App {

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/melqtx/tork/internal/isos"
+	"github.com/kaanemec/tork-w-debrid/internal/isos"
 )
 
 func TestShelfRowsUseOnlyDesktopAndServers(t *testing.T) {

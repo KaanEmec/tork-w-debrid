@@ -6,7 +6,7 @@ import (
 
 	"github.com/anacrolix/torrent"
 
-	"github.com/melqtx/tork/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
 )
 
 func TestApplyTorrentTuningZeroPreservesDefaults(t *testing.T) {

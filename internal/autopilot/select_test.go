@@ -5,8 +5,8 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 // hashMagnet builds a magnet with a deterministic infohash from a 40-char hex.

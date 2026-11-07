@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 type Source struct {

@@ -12,8 +12,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/health"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/health"
 )
 
 func prepareSourceDraft(a *App, name, endpoint string) {

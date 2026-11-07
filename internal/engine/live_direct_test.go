@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/isos"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/isos"
 )
 
 // temporary live smoke test - deleted after verification. Starts a real

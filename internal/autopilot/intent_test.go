@@ -3,7 +3,7 @@ package autopilot
 import (
 	"testing"
 
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 func TestParseIntent(t *testing.T) {

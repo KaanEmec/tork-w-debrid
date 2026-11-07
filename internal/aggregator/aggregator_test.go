@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 // fakeProvider emits n results, optionally failing or hanging.

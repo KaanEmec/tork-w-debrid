@@ -12,10 +12,10 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/clipboard"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 func TestDownloadItemsShowsMissingCompletedData(t *testing.T) {

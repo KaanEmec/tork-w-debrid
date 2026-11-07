@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/melqtx/tork/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
 )
 
 func assertRenderFits(t *testing.T, view string, width int) {

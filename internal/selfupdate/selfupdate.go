@@ -26,7 +26,7 @@ import (
 )
 
 // Module is the module path tork is published under.
-const Module = "github.com/melqtx/tork"
+const Module = "github.com/kaanemec/tork-w-debrid"
 
 const mainPackage = Module + "/cmd/tork"
 

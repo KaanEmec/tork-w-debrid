@@ -14,9 +14,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/session"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/session"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 	"gopkg.in/yaml.v3"
 )
 

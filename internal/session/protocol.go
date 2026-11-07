@@ -14,8 +14,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/term"
-	"github.com/melqtx/tork/internal/clipboard"
-	"github.com/melqtx/tork/internal/intake"
+	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
+	"github.com/kaanemec/tork-w-debrid/internal/intake"
 )
 
 const protocolVersion = 1

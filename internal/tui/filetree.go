@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/melqtx/tork/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
 )
 
 type fileNode struct {

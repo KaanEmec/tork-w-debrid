@@ -10,10 +10,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/health"
-	"github.com/melqtx/tork/internal/sources"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/health"
+	"github.com/kaanemec/tork-w-debrid/internal/sources"
 )
 
 // Drive batched commands exactly as Bubble Tea does, but keep automatic checks

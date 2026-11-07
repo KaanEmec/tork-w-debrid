@@ -3,7 +3,7 @@ package tui
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/melqtx/tork/internal/sources"
+	"github.com/kaanemec/tork-w-debrid/internal/sources"
 	"strings"
 )
 

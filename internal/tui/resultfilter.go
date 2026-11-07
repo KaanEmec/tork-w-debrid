@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 // parsedResultFilter combines fuzzy title text with structured predicates.

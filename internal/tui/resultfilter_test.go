@@ -6,9 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/rank"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
 func filterTestRow(title, providerName, category string, size int64, seeders int, trusted bool) scoredRow {

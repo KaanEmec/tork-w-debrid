@@ -8,10 +8,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/engine"
-	"github.com/melqtx/tork/internal/intake"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	"github.com/kaanemec/tork-w-debrid/internal/intake"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 func TestDetectTorrentInput(t *testing.T) {

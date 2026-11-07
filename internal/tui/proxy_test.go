@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/engine"
-	proxyroute "github.com/melqtx/tork/internal/proxy"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
+	proxyroute "github.com/kaanemec/tork-w-debrid/internal/proxy"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 func proxyTestApp(t *testing.T) *App {

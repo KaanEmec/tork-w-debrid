@@ -18,7 +18,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 
-	"github.com/melqtx/tork/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
 )
 
 // TestEngineDownloadsFromLocalSeeder exercises the full engine path - Add,

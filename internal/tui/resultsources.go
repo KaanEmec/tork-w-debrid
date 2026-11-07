@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/melqtx/tork/internal/aggregator"
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/sources"
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/sources"
 )
 
 // Report search outcomes, not general source health. A reachable source with

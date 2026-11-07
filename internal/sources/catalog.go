@@ -1,7 +1,7 @@
 package sources
 
 import (
-	"github.com/melqtx/tork/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
 	"sort"
 )
 

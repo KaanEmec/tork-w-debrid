@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/melqtx/tork/internal/health"
+	"github.com/kaanemec/tork-w-debrid/internal/health"
 )
 
 // compassModel is the health screen: how the source fleet is holding up, and

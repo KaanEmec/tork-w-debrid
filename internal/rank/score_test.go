@@ -3,7 +3,7 @@ package rank
 import (
 	"testing"
 
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 func scoreOf(title string, seeders, leechers int, prov string, trusted bool) float64 {

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/melqtx/tork/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 )
 
 type ProviderState int

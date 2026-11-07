@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/melqtx/tork/internal/config"
-	"github.com/melqtx/tork/internal/provider"
-	"github.com/melqtx/tork/internal/proxy"
-	"github.com/melqtx/tork/internal/state"
+	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
+	"github.com/kaanemec/tork-w-debrid/internal/proxy"
+	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
 
 // testConfig builds a real config rooted in a temp dir, so doctor's filesystem
