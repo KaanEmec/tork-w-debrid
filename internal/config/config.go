@@ -111,6 +111,7 @@ type Config struct {
 	TorrentTuning         TorrentTuningConfig       `yaml:"torrent_tuning,omitempty"`
 	Direct                DirectConfig              `yaml:"direct"`
 	Debrid                DebridConfig              `yaml:"debrid"`
+	UI                    UIConfig                  `yaml:"ui"`
 	Providers             map[string]ProviderConfig `yaml:"providers"`
 
 	dir          string // ~/.tork, resolved at load time
@@ -223,6 +224,7 @@ func Default(dir string) *Config {
 		MetadataCache:         MetadataCacheConfig{Enabled: true, MaxMB: 256, MaxEntries: 512},
 		Direct:                DirectConfig{MaxConnections: 4, MinChunkSize: "10MB", EnableChunking: true},
 		Debrid:                DefaultDebridConfig(),
+		UI:                    DefaultUIConfig(),
 		Providers:             defaultProviders(),
 		dir:                   dir,
 		proxyRuntime:          runtime,

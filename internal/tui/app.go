@@ -101,6 +101,7 @@ func New(cfg *config.Config, eng *engine.Engine, agg *aggregator.Aggregator, st 
 	if runtime := cfg.ProxyRuntime(); runtime != nil && runtime.Enabled() {
 		a.proxy.state = proxyBadgeUnverified
 	}
+	a.motion.animations = cfg.UI.Motion // Settings › Look › animations
 	a.results.curated = true
 	a.refreshDownloadItems()
 	return a
