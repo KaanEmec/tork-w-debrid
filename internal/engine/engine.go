@@ -24,6 +24,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/debrid"
 	"github.com/kaanemec/tork-w-debrid/internal/intake"
 	"github.com/kaanemec/tork-w-debrid/internal/metacache"
 )
@@ -39,6 +40,9 @@ const (
 	StatePaused
 	StateMissing
 	StateVerifying
+	// StateRemote: a debrid service is downloading the torrent in its cloud;
+	// Snapshot.Remote has its progress.
+	StateRemote
 )
 
 func (s TorrentState) String() string {
@@ -59,6 +63,8 @@ func (s TorrentState) String() string {
 		return "missing data"
 	case StateVerifying:
 		return "verifying"
+	case StateRemote:
+		return "in the cloud"
 	}
 	return "unknown"
 }
@@ -104,6 +110,11 @@ type Snapshot struct {
 	State          TorrentState
 	Note           string // short human status (direct downloads: failure reason)
 	Metadata       MetadataStatus
+	// Via names the service a debrid download goes through ("realdebrid"),
+	// or "" for torrents and plain HTTPS downloads.
+	Via string
+	// Remote is the cloud download's progress for debrid items, else nil.
+	Remote *RemoteProgress
 }
 
 type MetadataSource string
@@ -212,6 +223,11 @@ type Engine struct {
 	defaultDownloadDir   string // guarded by mu; see SetDefaultDownloadDir
 	items                map[metainfo.Hash]*item
 	direct               map[metainfo.Hash]*directItem // plain-HTTPS downloads (see direct.go)
+	debrid               map[metainfo.Hash]*debridItem // debrid downloads (see debrid.go)
+	debridProvider       debrid.Provider               // service for new debrid items, or nil
+	debridHooks          []func(DebridReadyEvent)      // run when a debrid item becomes ready
+	debridCtx            context.Context               // parent of debrid pollers; ended by Close
+	debridStop           context.CancelFunc            // cancels debridCtx
 	dwg                  sync.WaitGroup                // running direct-download goroutines
 	mwg                  sync.WaitGroup                // metadata-ready/cache goroutines
 	vwg                  sync.WaitGroup                // manual verification calls
@@ -363,6 +379,7 @@ func New(cfg *config.Config) (*Engine, error) {
 		// outbound TCP route, and Runtime routes every dial through SOCKS5.
 		client.AddDialer(runtime)
 	}
+	debridCtx, debridStop := context.WithCancel(context.Background())
 	return &Engine{
 		client:               client,
 		cfg:                  cfg,
@@ -372,6 +389,9 @@ func New(cfg *config.Config) (*Engine, error) {
 		pc:                   pc,
 		items:                make(map[metainfo.Hash]*item),
 		direct:               make(map[metainfo.Hash]*directItem),
+		debrid:               make(map[metainfo.Hash]*debridItem),
+		debridCtx:            debridCtx,
+		debridStop:           debridStop,
 		pcClose:              func() { pc.Close() },
 		torrentHTTP:          torrentHTTP,
 		directHTTP:           directHTTP,
@@ -416,6 +436,9 @@ func (e *Engine) addMagnetWithOptions(magnet string, opts AddOptions) (metainfo.
 	opts = e.normalizeOptions(opts)
 	spec, err := torrent.TorrentSpecFromMagnetUri(magnet)
 	if err != nil {
+		return metainfo.Hash{}, false, err
+	}
+	if err := e.refuseDebridDuplicate(metainfo.Hash(spec.InfoHash)); err != nil {
 		return metainfo.Hash{}, false, err
 	}
 	if opts.Preview && !spec.InfoHash.IsZero() {
@@ -516,6 +539,9 @@ func (e *Engine) AddTorrentURLWithOptions(ctx context.Context, url string, opts 
 	}
 	_ = e.metainfo.Store(*mi)
 
+	if err := e.refuseDebridDuplicate(mi.HashInfoBytes()); err != nil {
+		return metainfo.Hash{}, "", "", err
+	}
 	spec := torrent.TorrentSpecFromMetaInfo(mi)
 	e.prepareSpec(spec, opts.DownloadDir)
 	t, _, err := e.client.AddTorrentSpec(spec)
@@ -608,6 +634,10 @@ func (e *Engine) addMetaInfoForPreview(mi *metainfo.MetaInfo, opts AddOptions, s
 	_ = e.metainfo.Store(*mi)
 
 	e.mu.Lock()
+	if err := e.refuseDebridDuplicateLocked(h); err != nil {
+		e.mu.Unlock()
+		return metainfo.Hash{}, "", "", false, err
+	}
 	if existing, ok := e.items[h]; ok {
 		if existing.magnet != "" {
 			magnet = existing.magnet
@@ -969,6 +999,10 @@ func (e *Engine) SetSeeding(h metainfo.Hash, on bool) error {
 // Remove drops the torrent and forgets it; optionally deletes downloaded data.
 func (e *Engine) Remove(h metainfo.Hash, deleteData bool) error {
 	e.mu.Lock()
+	if di, ok := e.debrid[h]; ok {
+		e.mu.Unlock()
+		return e.removeDebrid(h, di)
+	}
 	if d, ok := e.direct[h]; ok {
 		if d.state == StateVerifying {
 			e.mu.Unlock()
@@ -1229,6 +1263,9 @@ func (e *Engine) Magnet(h metainfo.Hash) string {
 	if d, ok := e.direct[h]; ok {
 		return d.url
 	}
+	if di, ok := e.debrid[h]; ok {
+		return di.magnet
+	}
 	return ""
 }
 
@@ -1238,12 +1275,15 @@ func (e *Engine) Snapshots() []Snapshot {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	now := time.Now()
-	out := make([]Snapshot, 0, len(e.items)+len(e.direct))
+	out := make([]Snapshot, 0, len(e.items)+len(e.direct)+len(e.debrid))
 	for h, it := range e.items {
 		out = append(out, e.snapshot(h, it, now))
 	}
 	for h, d := range e.direct {
 		out = append(out, e.directSnapshot(h, d, now))
+	}
+	for h, di := range e.debrid {
+		out = append(out, e.debridSnapshot(h, di, now))
 	}
 	return out
 }
@@ -1257,6 +1297,9 @@ func (e *Engine) Snapshot(h metainfo.Hash) (Snapshot, bool) {
 	}
 	if d, ok := e.direct[h]; ok {
 		return e.directSnapshot(h, d, now), true
+	}
+	if di, ok := e.debrid[h]; ok {
+		return e.debridSnapshot(h, di, now), true
 	}
 	return Snapshot{}, false
 }
@@ -1364,6 +1407,9 @@ func (e *Engine) ListenPort() int { return e.client.LocalPort() }
 func (e *Engine) Close() {
 	e.mu.Lock()
 	e.closing = true
+	if e.debridStop != nil {
+		e.debridStop() // ends every debrid poller and background clean-up
+	}
 	for _, d := range e.direct {
 		if d.cancel != nil {
 			d.cancel()
