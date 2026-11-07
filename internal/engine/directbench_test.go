@@ -336,17 +336,21 @@ func verifyBenchFile(path string, size int64) error {
 // quick scale keeps `go test -bench Direct` under two minutes; it is the
 // 1 GB / 5 MB/s case shrunk 16x in size and sped up ~3x, with min_chunk_size
 // shrunk by the same factor, so every ratio (speed-up, tail share) is kept.
+// The download runs about 51x shorter (16x smaller, 3.2x faster), so its
+// retry and slow-connection timings are shortened by TimeScale too;
+// otherwise a 5 s health check could never fire in a 1 s download.
 type benchScale struct {
-	Name     string
-	Size     int64
-	ConnRate int64
-	MinChunk int64
+	Name      string
+	Size      int64
+	ConnRate  int64
+	MinChunk  int64
+	TimeScale float64 // multiplies directTuning timings; 0 = real timings
 }
 
 func benchScales() []benchScale {
 	const mb = 1 << 20
 	if os.Getenv("TORKWD_BENCH_FULL") == "" {
-		return []benchScale{{Name: "64MB", Size: 64 * mb, ConnRate: 16 * mb, MinChunk: 640 << 10}}
+		return []benchScale{{Name: "64MB", Size: 64 * mb, ConnRate: 16 * mb, MinChunk: 640 << 10, TimeScale: 1 / 51.2}}
 	}
 	rate := int64(5 * mb)
 	if v, err := strconv.ParseFloat(os.Getenv("TORKWD_BENCH_CAP_MBPS"), 64); err == nil && v > 0 {
@@ -420,6 +424,9 @@ func runBenchCase(b *testing.B, scale benchScale, bc benchCase) {
 	cfg := bc.server
 	cfg.Size = scale.Size
 	srv := newBenchServer(b, cfg)
+	if scale.TimeScale > 0 {
+		scaleDirectTuning(b, scale.TimeScale) // before the engine, so it is restored after Close
+	}
 	eng := newDirectTestEngine(b)
 	eng.directMinChunkSize = scale.MinChunk
 	eng.directMaxConnections = bc.conns

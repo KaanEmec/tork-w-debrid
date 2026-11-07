@@ -203,11 +203,15 @@ func (s *segmentRun) claim(w *segWorker, now time.Time) (r byteRange, wait time.
 	return byteRange{}, 0, false
 }
 
+// largestRunningLocked finds the running range with the most bytes still to
+// go. Only ranges whose current attempt has delivered data count: splitting
+// a request that has not answered yet (or keeps failing) would only spread
+// its failures over more segments, each starting again at zero tries.
 func (s *segmentRun) largestRunningLocked() (*segWorker, int64) {
 	var victim *segWorker
 	var most int64
 	for _, o := range s.workers {
-		if o.exited || !o.active {
+		if o.exited || !o.active || o.pos == o.attemptStart {
 			continue
 		}
 		if left := o.end - (o.pos + o.reserved) + 1; left > most {
