@@ -97,6 +97,7 @@ type downloadItem struct {
 	Failed        bool    // Real-Debrid refused the torrent; Note says why (t = as a torrent)
 	Segments      []segmentCell
 	ConnSpeeds    []float64 // bytes/s per connection, for the segment line
+	ConnWarn      []bool    // per connection: retrying or just restarted (amber)
 }
 
 // downloadRoute says where an item's bytes are right now.
@@ -1409,6 +1410,7 @@ func (a *App) renderDownloadItem(it downloadItem, selected bool, width int) []st
 		lines = append(lines, "    "+a.downloadRail(it, downloadRailWidth(width), frame))
 	}
 	if selected && a.downloadDetailShown(it, width) {
+		a.fillSegments(&it)
 		lines = append(lines, "    "+a.downloadDetailLine(it, inner-4))
 	}
 	for i, l := range lines {
@@ -1523,7 +1525,7 @@ func (a *App) downloadDetailLine(it downloadItem, width int) string {
 		return truncate(text, width)
 	}
 	if len(it.Segments) > 0 {
-		return segmentLine(it.Segments, it.ConnSpeeds, width)
+		return segmentLine(it.Segments, it.ConnSpeeds, it.ConnWarn, width)
 	}
 	info := []string{}
 	if directDownload(it) {
@@ -1587,6 +1589,80 @@ const (
 	segmentDone
 )
 
+// segmentCellCount is how many cells the segment map has.
+const segmentCellCount = 16
+
+// fillSegments adds the segment map to the selected row of a multi-connection
+// download. It asks the engine for this one row at draw time, so the map is
+// as fresh as the frame and no other row pays for it.
+func (a *App) fillSegments(it *downloadItem) {
+	if a.eng == nil || !it.Live || len(it.Segments) > 0 || it.State != engine.StateDownloading ||
+		!(it.ViaDebrid || directDownload(*it)) {
+		return
+	}
+	if m, ok := a.eng.Segments(it.Hash); ok {
+		it.Segments, it.ConnSpeeds, it.ConnWarn = segmentCells(m, segmentCellCount)
+	}
+}
+
+// segmentCells folds an engine SegmentMap into n cells: done when every byte
+// of the cell is on disk, in progress when a connection is still working in
+// it, otherwise not started. A download that runs on one connection gives
+// no cells.
+func segmentCells(m engine.SegmentMap, n int) (cells []segmentCell, speeds []float64, warn []bool) {
+	if m.Total <= 0 || n <= 0 || (len(m.Segments) < 2 && m.Limit < 2) {
+		return nil, nil, nil
+	}
+	done := make([]engine.ByteSpan, 0, len(m.Completed)+len(m.Segments))
+	done = append(done, m.Completed...)
+	for _, sg := range m.Segments {
+		if sg.Done > 0 {
+			done = append(done, engine.ByteSpan{Start: sg.Start, End: sg.Start + sg.Done - 1})
+		}
+	}
+	covered := func(lo, hi int64) bool { // every byte of [lo, hi] is in done
+		for lo <= hi {
+			next := lo
+			for _, d := range done {
+				if d.Start <= lo && d.End >= lo && d.End+1 > next {
+					next = d.End + 1
+				}
+			}
+			if next == lo {
+				return false
+			}
+			lo = next
+		}
+		return true
+	}
+	cells = make([]segmentCell, n)
+	for i := range cells {
+		lo := m.Total * int64(i) / int64(n)
+		hi := m.Total*int64(i+1)/int64(n) - 1
+		if hi < lo {
+			hi = lo
+		}
+		switch {
+		case covered(lo, hi):
+			cells[i] = segmentDone
+		default:
+			for _, sg := range m.Segments {
+				if sg.Start+sg.Done <= hi && sg.End >= lo {
+					cells[i] = segmentPart
+					break
+				}
+			}
+		}
+	}
+	speeds = make([]float64, len(m.Segments))
+	warn = make([]bool, len(m.Segments))
+	for i, sg := range m.Segments {
+		speeds[i] = sg.SpeedBps
+		warn[i] = sg.Retrying || sg.Restarted
+	}
+	return cells, speeds, warn
+}
+
 // segmentMap draws "▕██▓▓░░▏": done in accent, in progress in dim accent, not
 // yet in faint.
 func segmentMap(cells []segmentCell) string {
@@ -1607,8 +1683,9 @@ func segmentMap(cells []segmentCell) string {
 }
 
 // segmentLine is the segment map plus "4 connections · 6.1 · 5.9 · 6.0 · 0.4
-// MB/s", with any connection under a quarter of the median in amber.
-func segmentLine(cells []segmentCell, speeds []float64, width int) string {
+// MB/s". A connection that is retrying or was restarted, or runs under a
+// quarter of the median, is drawn in amber.
+func segmentLine(cells []segmentCell, speeds []float64, warn []bool, width int) string {
 	line := segmentMap(cells)
 	if len(speeds) > 0 {
 		sorted := append([]float64(nil), speeds...)
@@ -1617,7 +1694,7 @@ func segmentLine(cells []segmentCell, speeds []float64, width int) string {
 		parts := make([]string, len(speeds))
 		for i, s := range speeds {
 			text := fmt.Sprintf("%.1f", s/1e6)
-			if median > 0 && s < median/4 {
+			if (i < len(warn) && warn[i]) || (median > 0 && s < median/4) {
 				parts[i] = styleWarn.Render(text)
 			} else {
 				parts[i] = styleDim.Render(text)

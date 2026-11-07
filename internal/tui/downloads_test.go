@@ -12,12 +12,14 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
 	"github.com/kaanemec/tork-w-debrid/internal/config"
 	"github.com/kaanemec/tork-w-debrid/internal/debrid"
 	"github.com/kaanemec/tork-w-debrid/internal/engine"
 	"github.com/kaanemec/tork-w-debrid/internal/state"
+	"github.com/muesli/termenv"
 )
 
 func TestDownloadItemsShowsMissingCompletedData(t *testing.T) {
@@ -475,3 +477,92 @@ func TestRemoveDialogOffersTheCloudToggle(t *testing.T) {
 }
 
 func (a *App) helpLineForTest() string { return a.viewDownloads() }
+
+// fourSegments is a 100 MB file on four connections: the first two segments
+// are mostly done, the third has just started, the fourth is retrying.
+func fourSegments() engine.SegmentMap {
+	const mb = 1 << 20
+	return engine.SegmentMap{
+		Total: 100 * mb, Limit: 4, Connections: 3,
+		Completed: []engine.ByteSpan{{Start: 0, End: 12*mb - 1}},
+		Segments: []engine.SegmentInfo{
+			{Start: 12 * mb, End: 37*mb - 1, Done: 10 * mb, SpeedBps: 6.1e6},
+			{Start: 37 * mb, End: 62*mb - 1, Done: 5 * mb, SpeedBps: 5.9e6},
+			{Start: 62 * mb, End: 87*mb - 1, Done: 1 * mb, SpeedBps: 6.0e6},
+			{Start: 87 * mb, End: 100*mb - 1, SpeedBps: 0.4e6, Retrying: true, Tries: 1},
+		},
+	}
+}
+
+func TestSegmentCellsFromAFixedMap(t *testing.T) {
+	cells, speeds, warn := segmentCells(fourSegments(), 16)
+	if len(cells) != 16 || len(speeds) != 4 || len(warn) != 4 {
+		t.Fatalf("%d cells, %d speeds, %d marks", len(cells), len(speeds), len(warn))
+	}
+	if cells[0] != segmentDone || cells[1] != segmentDone {
+		t.Errorf("the first 12 MB must be done: %v", cells)
+	}
+	if cells[15] != segmentPart || cells[14] != segmentPart {
+		t.Errorf("the last cells have a connection in them: %v", cells)
+	}
+	if !warn[3] || warn[0] {
+		t.Errorf("only the retrying connection is marked: %v", warn)
+	}
+	if c, _, _ := segmentCells(engine.SegmentMap{Total: 100, Limit: 1, Segments: []engine.SegmentInfo{{End: 99}}}, 16); c != nil {
+		t.Error("a single-connection download gets no map")
+	}
+}
+
+func TestSegmentLineShowsMapSpeedsAndAmberRetry(t *testing.T) {
+	withProfile(t, termenv.TrueColor, true)
+	cells, speeds, warn := segmentCells(fourSegments(), 16)
+	for _, w := range []int{80, 60, 30} {
+		line := segmentLine(cells, speeds, warn, w-4)
+		if lipgloss.Width(line) > w-4 {
+			t.Errorf("segment line is %d cells at width %d", lipgloss.Width(line), w)
+		}
+	}
+	line := segmentLine(cells, speeds, warn, 76)
+	plain := ansi.Strip(line)
+	for _, want := range []string{"▕", "▏", "4 connections · 6.1 · 5.9 · 6.0 · 0.4 MB/s"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("line %q misses %q", plain, want)
+		}
+	}
+	amber := ""
+	for _, r := range sgrRuns(line) {
+		if r.text == "0.4" {
+			amber = r.fg
+		}
+		if r.text == "6.1" && r.fg == amber && amber != "" {
+			t.Error("a healthy connection is drawn in the retry colour")
+		}
+	}
+	if amber == "" {
+		t.Error("the retried connection has no colour")
+	}
+	healthy := ""
+	for _, r := range sgrRuns(line) {
+		if r.text == "6.1" {
+			healthy = r.fg
+		}
+	}
+	if healthy == amber {
+		t.Errorf("retried and healthy speeds share colour %q", amber)
+	}
+}
+
+func TestSelectedRowDrawsSegmentLineAt80Columns(t *testing.T) {
+	a := &App{width: 80, height: 24, screen: screenDownloads, downloads: newDownloadsModel()}
+	cells, speeds, warn := segmentCells(fourSegments(), 16)
+	a.downloads.items = []downloadItem{
+		{Name: "a.iso", State: engine.StateDownloading, Length: 100, BytesCompleted: 40, SpeedBps: 18e6, Segments: cells, ConnSpeeds: speeds, ConnWarn: warn},
+		{Name: "b.iso", State: engine.StateDownloading, Length: 100, BytesCompleted: 40, SpeedBps: 18e6, Segments: cells, ConnSpeeds: speeds, ConnWarn: warn},
+	}
+	a.downloads.itemsReady = true
+	view := a.viewDownloads()
+	assertRenderFits(t, view, 80)
+	if n := strings.Count(ansi.Strip(view), "4 connections"); n != 1 {
+		t.Errorf("the segment line shows %d times, want once (selected row only)", n)
+	}
+}
