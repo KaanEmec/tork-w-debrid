@@ -302,11 +302,11 @@ func (e *Engine) recoverSegment(ctx context.Context, it *directItem, run *segmen
 	}
 	tries := run.release(w, true, minDelay, now)
 	if tries >= directTuning.maxTries {
-		run.fail(fmt.Errorf("a segment failed %d times - %s", tries, lastErrPart(err)))
+		run.fail(giveUpErr(err, "a segment failed %d times - %s", tries, lastErrPart(err)))
 		return false
 	}
 	if run.streak() >= 2*directTuning.maxTries {
-		run.fail(fmt.Errorf("every connection keeps failing - %s", lastErrPart(err)))
+		run.fail(giveUpErr(err, "every connection keeps failing - %s", lastErrPart(err)))
 		return false
 	}
 	if kind != errKindBusy {

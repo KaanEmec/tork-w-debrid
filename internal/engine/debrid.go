@@ -77,6 +77,11 @@ var debridTuning = struct {
 	retryBase    time.Duration // first back-off after a transient error
 	retryMax     time.Duration // longest back-off
 	cleanupWait  time.Duration // bound on a background Delete
+	// autoRetryBase is the first wait before a download held by a network
+	// outage starts again by itself; it doubles up to retryMax, at most
+	// autoRetries times in a row (about 17 minutes in all).
+	autoRetryBase time.Duration
+	autoRetries   int
 }{
 	fastPoll:     time.Second,
 	downloadPoll: 5 * time.Second,
@@ -84,6 +89,9 @@ var debridTuning = struct {
 	retryBase:    2 * time.Second,
 	retryMax:     time.Minute,
 	cleanupWait:  15 * time.Second,
+
+	autoRetryBase: 5 * time.Second,
+	autoRetries:   20,
 }
 
 // DebridOptions configures StartDebrid.
@@ -193,6 +201,11 @@ type debridItem struct {
 	// prevFiles is the file list before a re-add, to choose the same files
 	// again by path and size.
 	prevFiles []debrid.RemoteFile
+	// autoRetries counts holds after a network outage that restarted by
+	// themselves since the last manual resume; holdGen tells a pending
+	// automatic restart that the hold it was made for is over.
+	autoRetries int
+	holdGen     int
 }
 
 // SetDebridProvider sets the debrid service new debrid items use (nil turns
