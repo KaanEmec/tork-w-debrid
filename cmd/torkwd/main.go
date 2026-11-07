@@ -495,6 +495,7 @@ func runAutopilot(args []string) error {
 	if err != nil {
 		return err
 	}
+	attachDebrid(eng, cfg)
 	resumeAll(eng, st, cfg, legacyDownloadDir)
 
 	// See run(): evil mode only changes the default for downloads queued this
@@ -627,6 +628,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	attachDebrid(eng, cfg)
 	resumeAll(eng, st, cfg, legacyDownloadDir)
 
 	// Evil mode applies only to new downloads made this session. Set it after
@@ -699,6 +701,12 @@ func resumeAll(eng *engine.Engine, st *state.State, cfg *config.Config, legacyDo
 		e := &st.Entries[i]
 		normalizeEntryPaths(e, legacyDownloadDir)
 		if e.Paused || e.NeedsRelink {
+			continue
+		}
+		if e.Via != "" { // a debrid download: never a torrent, never seeds (J3.4)
+			if !e.Done {
+				eng.ResumeDebrid(*e) // best-effort; failures surface in UI
+			}
 			continue
 		}
 		seed := e.SeedEnabled(cfg.SeedAfterComplete)

@@ -126,8 +126,16 @@ type DebridItemInfo struct {
 	DownloadDir string
 	// Remote is the last RemoteInfo seen (zero before the first poll).
 	Remote debrid.RemoteInfo
-	// Err is why the item failed, or nil.
+	// Err is why the item failed or was held, or nil.
 	Err error
+	// Paused: stopped by Pause or held after a failure (Note says which);
+	// Resume continues from Phase.
+	Paused bool
+	Note   string
+	// DataPath is the torrent folder (or the single file) under DownloadDir.
+	DataPath string
+	// RemoteDeleted: the cloud copy was deleted after the download.
+	RemoteDeleted bool
 }
 
 // debridItem is one torrent on a debrid service. All fields are guarded by
@@ -160,15 +168,44 @@ type debridItem struct {
 
 	// children are the per-file HTTPS downloads of the local phase (J3.3).
 	// They are not in Engine.direct, so the list shows one row per torrent.
-	children []*directItem
+	children  []*debridChild
+	budget    *ConnectionBudget // debrid.max_total_connections for all files
+	localWake chan struct{}     // a file of the local phase stopped
+	localNote string            // shown on the row while the files download
+	dataPath  string            // torrent folder or single file (D5), "" while unknown
+	shownDone int64             // combined bytes last shown; never goes back
+	samples   ring              // combined speed of the local phase
+
+	// paused: stopped by Pause or held after a failure a retry may fix (the
+	// note says which). The phase is kept, so Resume goes back to it.
+	paused        bool
+	needsLogin    bool  // held until the account is linked again
+	showRemote    bool  // resumed from state.json: show the cloud at once
+	readds        int   // re-adds after the service lost the torrent, this run
+	savedLength   int64 // length from state.json, until the service tells
+	remoteDeleted bool  // delete_after_download removed the cloud copy
+	// prevFiles is the file list before a re-add, to choose the same files
+	// again by path and size.
+	prevFiles []debrid.RemoteFile
 }
 
 // SetDebridProvider sets the debrid service new debrid items use (nil turns
-// debrid off for new items). Items already added keep their provider.
+// debrid off for new items). Items already added keep their provider, except
+// those held because the account needed a login: they continue with p.
 func (e *Engine) SetDebridProvider(p debrid.Provider) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.debridProvider = p
+	if p == nil || e.closing {
+		return
+	}
+	// items held for a login continue with the new account
+	for _, it := range e.debrid {
+		if it.paused && it.needsLogin {
+			it.provider, it.short = p, providerShort(p.Name())
+			e.restartDebridLocked(it)
+		}
+	}
 }
 
 // OnDebridReady registers fn to run once per item when the service has every
@@ -305,6 +342,7 @@ func (e *Engine) DebridItem(h metainfo.Hash) (DebridItemInfo, bool) {
 		Selected:    append([]int(nil), it.selected...),
 		TorrentData: it.torrentData, DownloadDir: it.downloadDir,
 		Remote: info, Err: it.err,
+		Paused: it.paused, Note: it.note, DataPath: it.dataPath, RemoteDeleted: it.remoteDeleted,
 	}, true
 }
 
@@ -380,22 +418,6 @@ func (e *Engine) CancelDebridPreview(h metainfo.Hash) {
 	}
 }
 
-// removeDebrid stops a debrid item's poller and forgets it. The remote copy
-// and local data are J3.5's business (RemoveOptions).
-func (e *Engine) removeDebrid(h metainfo.Hash, it *debridItem) error {
-	e.mu.Lock()
-	if e.debrid[h] == it {
-		delete(e.debrid, h)
-	}
-	e.stopDebridPollLocked(it)
-	done := it.pollDone
-	e.mu.Unlock()
-	if done != nil {
-		<-done
-	}
-	return nil
-}
-
 // deleteRemoteLater deletes a remote torrent on a tracked goroutine, bounded
 // by debridTuning.cleanupWait and cancelled by Close.
 func (e *Engine) deleteRemoteLater(p debrid.Provider, id string) {
@@ -448,9 +470,21 @@ func (e *Engine) stopDebridPollLocked(it *debridItem) {
 }
 
 // runDebrid polls the service for one item until the file list is known (in
-// the preview), the files are ready, the torrent fails, or ctx ends.
+// the preview), the files are ready (it then runs the local phase), the
+// torrent fails or the account needs a login, or ctx ends. A torrent deleted
+// on the service is added again and its files chosen again (J3.4).
 func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 	failures := 0
+	// backoff waits after a transient error; false when ctx ended
+	backoff := func() bool {
+		failures++
+		return debridSleep(ctx, it, debridRetryDelay(failures))
+	}
+	stop := func(err error) {
+		e.mu.Lock()
+		e.stopDebridOnErrLocked(ctx, it, err)
+		e.mu.Unlock()
+	}
 	for {
 		e.mu.Lock()
 		if e.debrid[it.hash] != it || ctx.Err() != nil {
@@ -459,8 +493,29 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 		}
 		p, id := it.provider, it.remoteID
 		needSelect := it.phase == DebridCloud && !it.selectSent && it.info.Status == debrid.WaitingSelection
-		selected := append([]int(nil), it.selected...)
+		var selected []int
+		if needSelect {
+			selected = it.selectionFor(it.info.Files)
+		}
 		e.mu.Unlock()
+
+		if id == "" { // deleted on the service: add it again
+			err := e.addDebridAgain(ctx, it, p)
+			switch {
+			case ctx.Err() != nil:
+				return
+			case err == nil:
+				failures = 0
+			case transientDebridErr(err):
+				if !backoff() {
+					return
+				}
+			default:
+				stop(err)
+				return
+			}
+			continue
+		}
 
 		if needSelect {
 			err := p.SelectFiles(ctx, id, selected)
@@ -469,19 +524,20 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			}
 			if err != nil {
 				if transientDebridErr(err) {
-					failures++
-					if !debridSleep(ctx, it, debridRetryDelay(failures)) {
+					if !backoff() {
 						return
 					}
 					continue
 				}
-				e.mu.Lock()
-				e.failDebridLocked(it, err)
-				e.mu.Unlock()
+				stop(err)
 				return
 			}
 			e.mu.Lock()
 			it.selectSent, it.selectAt = true, time.Now()
+			if len(selected) > 0 {
+				it.selected = selected
+			}
+			it.prevFiles = nil
 			e.mu.Unlock()
 		}
 
@@ -491,16 +547,20 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 		}
 		if err != nil {
 			if transientDebridErr(err) {
-				failures++
-				if !debridSleep(ctx, it, debridRetryDelay(failures)) {
+				if !backoff() {
 					return
 				}
 				continue
 			}
-			// ErrNotFound (deleted on the service) fails for now; J3.4 re-adds.
-			e.mu.Lock()
-			e.failDebridLocked(it, err)
-			e.mu.Unlock()
+			if errors.Is(err, debrid.ErrNotFound) {
+				e.mu.Lock()
+				again := e.forgetRemoteLocked(it)
+				e.mu.Unlock()
+				if again {
+					continue
+				}
+			}
+			stop(err)
 			return
 		}
 		failures = 0
@@ -514,6 +574,19 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 		it.info, it.infoAt = info, now
 		if it.name == "" && info.Name != "" {
 			it.name = info.Name
+		}
+		if it.phase != DebridPreview {
+			if safeDirectFilename(info.Name) {
+				it.name = info.Name // the folder's name (D5), so relink matches it
+			}
+			if path := it.debridDataPath(info); path != "" {
+				it.dataPath = path
+			}
+		}
+		if it.phase == DebridLocal && info.Status != debrid.Ready {
+			// the service no longer has the files ready: wait for it again
+			it.phase = DebridCloud
+			it.selectSent = info.Status != debrid.Converting && info.Status != debrid.WaitingSelection
 		}
 		if it.phase == DebridCloud && !it.selectSent && info.Status != debrid.Converting && info.Status != debrid.WaitingSelection {
 			// the service skipped the selection (already chosen): the window
@@ -530,8 +603,10 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			it.cancel = nil
 			e.mu.Unlock()
 			return
-		case it.phase == DebridCloud && it.selectSent && info.Status == debrid.Ready:
-			it.phase, it.readyAt, it.cancel = DebridReady, now, nil
+		case (it.phase == DebridCloud || it.phase == DebridLocal) && it.selectSent && info.Status == debrid.Ready:
+			if it.phase == DebridCloud {
+				it.phase, it.readyAt = DebridReady, now
+			}
 			fire := !it.readyFired
 			it.readyFired = true
 			hooks := slices.Clone(e.debridHooks)
@@ -539,6 +614,7 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			if fire {
 				e.debridBecameReady(it, info, hooks)
 			}
+			e.runDebridLocal(ctx, it, info)
 			return
 		}
 		wait := it.pollInterval(now)
@@ -549,8 +625,109 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 	}
 }
 
-// debridBecameReady runs once per item when the service has every selected
-// file. J3.3 starts the local phase from here.
+// debridMaxReadds bounds how often one run adds a torrent the service lost.
+const debridMaxReadds = 2
+
+// forgetRemoteLocked drops a remote ID the service no longer knows, so the
+// poller adds the torrent again. It reports false for a preview (nothing was
+// chosen yet) or after debridMaxReadds tries. Caller holds e.mu.
+func (e *Engine) forgetRemoteLocked(it *debridItem) bool {
+	switch it.phase {
+	case DebridCloud, DebridReady, DebridLocal:
+	default:
+		return false
+	}
+	if it.readds >= debridMaxReadds {
+		return false
+	}
+	it.readds++
+	if len(it.info.Files) > 0 {
+		it.prevFiles = it.info.Files
+	}
+	it.remoteID = ""
+	return true
+}
+
+// addDebridAgain adds the item's magnet (or .torrent) to the service again
+// and waits for its file list to choose the same files.
+func (e *Engine) addDebridAgain(ctx context.Context, it *debridItem, p debrid.Provider) error {
+	e.mu.Lock()
+	magnet, data := it.magnet, it.torrentData
+	e.mu.Unlock()
+	var id string
+	var err error
+	if data != nil {
+		id, err = p.AddTorrentFile(ctx, data)
+	} else {
+		id, err = p.AddMagnet(ctx, magnet)
+	}
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	if e.debrid[it.hash] != it || ctx.Err() != nil {
+		e.mu.Unlock()
+		e.deleteRemoteLater(p, id)
+		return context.Canceled
+	}
+	it.remoteID = id
+	it.info, it.infoAt = debrid.RemoteInfo{}, time.Time{}
+	it.phase, it.selectSent = DebridCloud, false
+	e.mu.Unlock()
+	return nil
+}
+
+// selectionFor maps the chosen files onto the service's file list: by path
+// and size after a re-add (the IDs could differ), else the IDs as given.
+// Caller holds e.mu.
+func (it *debridItem) selectionFor(files []debrid.RemoteFile) []int {
+	if len(it.selected) == 0 || len(it.prevFiles) == 0 {
+		return slices.Clone(it.selected)
+	}
+	type fileKey struct {
+		path  string
+		bytes int64
+	}
+	now := make(map[fileKey]int, len(files))
+	for _, f := range files {
+		now[fileKey{f.Path, f.Bytes}] = f.ID
+	}
+	before := make(map[int]fileKey, len(it.prevFiles))
+	for _, f := range it.prevFiles {
+		before[f.ID] = fileKey{f.Path, f.Bytes}
+	}
+	out := make([]int, 0, len(it.selected))
+	for _, id := range it.selected {
+		if k, ok := before[id]; ok {
+			if fresh, ok := now[k]; ok {
+				id = fresh
+			}
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// stopDebridOnErrLocked ends polling after a refused call: a missing login
+// holds the item until the account is linked again (Resume or
+// SetDebridProvider continue it); anything else fails it. Caller holds e.mu.
+func (e *Engine) stopDebridOnErrLocked(ctx context.Context, it *debridItem, err error) {
+	if ctx.Err() != nil || e.debrid[it.hash] != it {
+		return
+	}
+	if needsDebridLogin(err) {
+		e.holdDebridLocked(ctx, it, err, "")
+		return
+	}
+	e.failDebridLocked(it, err)
+}
+
+func needsDebridLogin(err error) bool {
+	return errors.Is(err, debrid.ErrNotLinked) || errors.Is(err, debrid.ErrUnauthorized) || errors.Is(err, ErrNoDebrid)
+}
+
+// debridBecameReady runs the ready hooks once per item when the service has
+// every selected file, just before the local phase (J3.3) starts.
 func (e *Engine) debridBecameReady(it *debridItem, info debrid.RemoteInfo, hooks []func(DebridReadyEvent)) {
 	ev := DebridReadyEvent{Hash: it.hash, Info: info}
 	for _, fn := range hooks {
@@ -635,6 +812,9 @@ func (it *debridItem) displayName() string {
 // remoteVisible reports whether the row shows the cloud's progress: the ready
 // window after the selection has passed without the files being ready.
 func (it *debridItem) remoteVisible(now time.Time) bool {
+	if it.showRemote {
+		return true
+	}
 	if !it.selectSent || it.selectAt.IsZero() {
 		return false
 	}
@@ -650,7 +830,8 @@ func (it *debridItem) remoteVisible(now time.Time) bool {
 func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) Snapshot {
 	s := Snapshot{
 		Hash: h, Name: it.displayName(), Magnet: it.magnet,
-		DownloadDir: it.downloadDir, Via: it.via,
+		DownloadDir: it.downloadDir, DataPath: it.dataPath, Via: it.via,
+		Debrid: it.savedState(),
 	}
 	if !it.infoAt.IsZero() {
 		s.Remote = &RemoteProgress{
@@ -670,6 +851,19 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 			s.State = StatePreviewing
 		}
 	case DebridCloud, DebridReady:
+		if it.paused {
+			s.State = StatePaused
+			s.Note = it.note
+			if s.Note == "" {
+				s.Note = "paused"
+			}
+			s.Length = it.info.Bytes
+			s.BytesCompleted = int64(float64(s.Length) * min(max(it.info.Progress, 0), 100) / 100)
+			if s.Length == 0 {
+				s.Length = it.savedLength
+			}
+			return s
+		}
 		if !it.remoteVisible(now) {
 			s.State = StateFetchingMeta // "starting", like a torrent connecting
 			return s
@@ -697,11 +891,8 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 	case DebridFailed:
 		s.State = StatePaused
 		s.Note = it.note
-	default: // local and done: J3.3 fills these from the children
-		s.State = StateDownloading
-		if it.phase == DebridDone {
-			s.State = StateDone
-		}
+	default: // local and done: the sum over the files
+		e.debridLocalSnapshot(&s, it, now)
 	}
 	return s
 }

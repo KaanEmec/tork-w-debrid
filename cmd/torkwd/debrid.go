@@ -19,6 +19,7 @@ import (
 	"github.com/kaanemec/tork-w-debrid/internal/config"
 	"github.com/kaanemec/tork-w-debrid/internal/debrid"
 	"github.com/kaanemec/tork-w-debrid/internal/debrid/realdebrid"
+	"github.com/kaanemec/tork-w-debrid/internal/engine"
 )
 
 const debridUsage = "usage: torkwd debrid login|status|logout [-y]|on|off"
@@ -288,4 +289,17 @@ func openInBrowser(url string) error {
 	}
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+// attachDebrid gives the engine the Real-Debrid client of the account in
+// debrid.json before saved downloads resume, so debrid entries continue
+// (J3.4). The client makes no request until it is used; without a usable
+// link its calls fail with debrid.ErrNotLinked, and those rows say the
+// account needs a login until it is linked again.
+func attachDebrid(eng *engine.Engine, cfg *config.Config) {
+	if cfg.Debrid.Provider != "" && cfg.Debrid.Provider != config.DebridProviderRealDebrid {
+		return
+	}
+	client, _ := realdebrid.NewFromConfig(cfg, realdebrid.Endpoints{})
+	eng.SetDebridProvider(client)
 }

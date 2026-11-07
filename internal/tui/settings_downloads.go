@@ -269,9 +269,12 @@ func (connectionsRow) update(a *App, key tea.KeyMsg) (bool, tea.Cmd) {
 	if err := a.cfg.WriteDebridConnections(n); err != nil {
 		return true, a.showError("not saved: " + err.Error())
 	}
-	// New debrid transfers read it from the config; running ones pick it up
-	// the next time a connection claims a segment.
+	// New debrid transfers use it, and running ones pick it up the next time
+	// a connection claims a segment.
 	a.cfg.Debrid.Connections = n
+	if a.eng != nil {
+		a.eng.SetDebridSettings(a.cfg.Debrid)
+	}
 	return true, nil
 }
 

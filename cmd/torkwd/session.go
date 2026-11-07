@@ -145,6 +145,7 @@ func runSessionDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
+	attachDebrid(eng, cfg)
 	resumeAll(eng, st, cfg, legacyDir)
 	if *evil {
 		cfg.SeedAfterComplete = false
