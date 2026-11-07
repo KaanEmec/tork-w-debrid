@@ -12,8 +12,10 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
 	"github.com/kaanemec/tork-w-debrid/internal/config"
+	"github.com/kaanemec/tork-w-debrid/internal/debrid"
 	"github.com/kaanemec/tork-w-debrid/internal/engine"
 	"github.com/kaanemec/tork-w-debrid/internal/state"
 )
@@ -353,3 +355,123 @@ func TestApplyVerifyResultClearsCompletionState(t *testing.T) {
 		t.Fatalf("direct mismatch entry = %+v", entry)
 	}
 }
+
+func cloudSnap(name string, state engine.TorrentState, status debrid.RemoteStatus, progress float64) engine.Snapshot {
+	s := engine.Snapshot{
+		Magnet: "magnet:?xt=urn:btih:" + name, Name: name, State: state, Via: "realdebrid",
+		Length: 1000, BytesCompleted: int64(progress * 10), SpeedBps: 12 << 20, Seeders: 8,
+		Remote: &engine.RemoteProgress{Status: status, Progress: progress},
+	}
+	return s
+}
+
+func TestCloudRowsShowOnlyForTheCloudPhase(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	local := cloudSnap("local", engine.StateDownloading, debrid.Downloading, 100)
+	local.SpeedBps, local.BytesCompleted = 5<<20, 400
+	a.downloads.snaps = []engine.Snapshot{
+		cloudSnap("busy", engine.StateRemote, debrid.Downloading, 43),
+		cloudSnap("waiting", engine.StateRemote, debrid.Queued, 0),
+		local,
+	}
+	a.refreshDownloadItems()
+	items := a.downloadItems()
+	if len(items) != 3 {
+		t.Fatalf("%d items", len(items))
+	}
+	byName := map[string]downloadItem{}
+	for _, it := range items {
+		byName[it.Name] = it
+	}
+	if it := byName["busy"]; it.Route != routeCloud || it.CloudNote != "Real-Debrid 43 % · 12.0 MiB/s · 8 seeders" || it.CloudProgress != 0.43 {
+		t.Errorf("busy = %+v", it)
+	}
+	if it := byName["waiting"]; it.Route != routeCloud || it.CloudNote != "queued on Real-Debrid" {
+		t.Errorf("waiting = %+v", it)
+	}
+	if it := byName["local"]; it.Route != routeLocal || !it.ViaDebrid {
+		t.Errorf("local = %+v", it)
+	}
+	if m := a.downloads.metrics; m.Cloud != 2 || m.SpeedBps != 5<<20 {
+		t.Errorf("metrics = %+v, want 2 cloud items and only the local speed", m)
+	}
+	for _, it := range items { // the cloud glyph and text belong to the first two only
+		plain := ansi.Strip(strings.Join(a.renderDownloadItem(it, false, 100), "\n"))
+		wantCloud := it.Name != "local"
+		if got := strings.Contains(plain, glyphs.cloud); got != wantCloud {
+			t.Errorf("%s: cloud glyph shown = %v\n%s", it.Name, got, plain)
+		}
+		if strings.Contains(plain, "Real-Debrid") != wantCloud {
+			t.Errorf("%s: Real-Debrid text mismatch\n%s", it.Name, plain)
+		}
+	}
+	view := ansi.Strip(a.viewDownloads())
+	if !strings.Contains(view, "↓ 5.0 MiB/s · ☁\uFE0E 2") {
+		t.Errorf("header chip missing:\n%s", view)
+	}
+	assertRenderFits(t, a.viewDownloads(), 100)
+	a.downloads.snaps = a.downloads.snaps[2:]
+	a.refreshDownloadItems()
+	if strings.Contains(ansi.Strip(a.viewDownloads()), "☁") {
+		t.Error("the cloud chip shows with no cloud item")
+	}
+}
+
+func TestCloudDetailLineExplainsTheHandOff(t *testing.T) {
+	it := downloadItem{Route: routeCloud, ViaDebrid: true, RemoteFiles: 3}
+	got := ansi.Strip(debridDetail(it))
+	for _, want := range []string{"Route: Real-Debrid", "3 files selected", "keep torkwd running"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("detail %q misses %q", got, want)
+		}
+	}
+	if debridDetail(downloadItem{State: engine.StateDownloading, ViaDebrid: true}) != "" {
+		t.Error("a local debrid row must look like any other download")
+	}
+}
+
+func TestFailedDebridRowShowsReasonAndWay(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	a.downloads.items = []downloadItem{{Name: "Dead torrent", ViaDebrid: true, Failed: true, Live: true,
+		State: engine.StatePaused, Note: "☁ RD dead: no seeders"}}
+	a.downloads.itemsReady = true
+	view := ansi.Strip(a.viewDownloads())
+	for _, want := range []string{"dead: no seeders", "Route: Real-Debrid", "t download as a torrent"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("failed row misses %q:\n%s", want, view)
+		}
+	}
+	assertRenderFits(t, a.viewDownloads(), 100)
+}
+
+func TestRemoveDialogOffersTheCloudToggle(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	cloud := downloadItem{Name: "c", Live: true, ViaDebrid: true, Route: routeCloud}
+	local := downloadItem{Name: "l", Live: true, ViaDebrid: true, State: engine.StateDownloading}
+	torrent := downloadItem{Name: "t", Live: true, State: engine.StateDownloading}
+
+	if c := a.newRemoveConfirm(cloud, false); !c.debrid || !c.deleteRemote {
+		t.Errorf("cloud phase: %+v, want the toggle on", c)
+	}
+	if c := a.newRemoveConfirm(local, false); !c.debrid || c.deleteRemote {
+		t.Errorf("local phase: %+v, want the toggle off", c)
+	}
+	if c := a.newRemoveConfirm(torrent, true); c.debrid || c.options().DeleteRemote || !c.options().DeleteData {
+		t.Errorf("torrent: %+v", c)
+	}
+
+	a.downloads.items, a.downloads.itemsReady = []downloadItem{cloud}, true
+	a.downloads.confirmRemove = a.newRemoveConfirm(cloud, false)
+	if view := ansi.Strip(a.helpLineForTest()); !strings.Contains(view, "cloud copy: delete") {
+		t.Errorf("dialog footer = %q", view)
+	}
+	a.updateRemoveConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if a.downloads.confirmRemove.options().DeleteRemote {
+		t.Error("c did not turn the cloud delete off")
+	}
+	if view := ansi.Strip(a.helpLineForTest()); !strings.Contains(view, "cloud copy: keep") {
+		t.Errorf("dialog footer = %q", view)
+	}
+}
+
+func (a *App) helpLineForTest() string { return a.viewDownloads() }

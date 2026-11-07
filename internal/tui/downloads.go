@@ -19,6 +19,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
+	"github.com/kaanemec/tork-w-debrid/internal/debrid"
 	"github.com/kaanemec/tork-w-debrid/internal/engine"
 	"github.com/kaanemec/tork-w-debrid/internal/session"
 	"github.com/kaanemec/tork-w-debrid/internal/state"
@@ -92,6 +93,8 @@ type downloadItem struct {
 	CloudProgress float64 // Real-Debrid's own progress while Route is routeCloud
 	CloudNote     string  // "Real-Debrid 43 % · 12 MB/s · 8 seeders"
 	ViaDebrid     bool    // the file came (or comes) through Real-Debrid
+	RemoteFiles   int     // files chosen on Real-Debrid (0 = every file or unknown)
+	Failed        bool    // Real-Debrid refused the torrent; Note says why (t = as a torrent)
 	Segments      []segmentCell
 	ConnSpeeds    []float64 // bytes/s per connection, for the segment line
 }
@@ -132,6 +135,35 @@ func (m downloadMetrics) ETA() time.Duration {
 type removeConfirm struct {
 	item       downloadItem
 	deleteData bool
+	// debrid rows add the "also delete from Real-Debrid" toggle (D7): on by
+	// default while the item is still in the cloud phase.
+	debrid       bool
+	deleteRemote bool
+}
+
+// removeDebridDoneMsg ends a debrid remove, which waits on the service.
+type removeDebridDoneMsg struct {
+	item downloadItem
+	res  engine.RemoveResult
+	err  error
+}
+
+// torrentFallbackMsg ends the `t` key: the debrid copy is gone and the
+// magnet is added as a normal torrent.
+type torrentFallbackMsg struct {
+	item downloadItem
+	res  engine.RemoveResult
+	err  error
+}
+
+// newRemoveConfirm builds the dialog state for item it.
+func (a *App) newRemoveConfirm(it downloadItem, deleteData bool) *removeConfirm {
+	c := &removeConfirm{item: it, deleteData: deleteData}
+	if it.Live && a.debridDownload(it) {
+		c.debrid = true
+		c.deleteRemote = it.Route != routeLocal || it.Failed
+	}
+	return c
 }
 
 type revealDownloadMsg struct{ err error }
@@ -283,6 +315,10 @@ func (a *App) updateDownloads(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if it, ok := a.selectedDownload(items); ok {
 			return a, a.togglePause(it)
 		}
+	case "t":
+		if it, ok := a.selectedDownload(items); ok {
+			return a, a.downloadAsTorrent(it)
+		}
 	case "v":
 		if it, ok := a.selectedDownload(items); ok {
 			return a, a.verifyDownload(it)
@@ -307,11 +343,11 @@ func (a *App) updateDownloads(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		if it, ok := a.selectedDownload(items); ok {
-			d.confirmRemove = &removeConfirm{item: it}
+			d.confirmRemove = a.newRemoveConfirm(it, false)
 		}
 	case "d":
 		if it, ok := a.selectedDownload(items); ok {
-			d.confirmRemove = &removeConfirm{item: it, deleteData: true}
+			d.confirmRemove = a.newRemoveConfirm(it, true)
 		}
 	case "enter":
 		if it, ok := a.selectedDownload(items); ok {
@@ -459,8 +495,16 @@ func (a *App) updateRemoveConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "n":
 		d.confirmRemove = nil
 		return a, nil
+	case "c":
+		if conf.debrid {
+			conf.deleteRemote = !conf.deleteRemote
+		}
+		return a, nil
 	case "y", "enter":
 		d.confirmRemove = nil
+		if conf.debrid {
+			return a, a.removeDebridCmd(conf)
+		}
 		if err := a.removeDownload(conf.item, conf.deleteData); err != nil {
 			return a, a.showError("remove failed: " + err.Error())
 		}
@@ -469,6 +513,85 @@ func (a *App) updateRemoveConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, a.saveState()
 	}
 	return a, nil
+}
+
+// options is what the dialog's choices mean to the engine.
+func (c *removeConfirm) options() engine.RemoveOptions {
+	return engine.RemoveOptions{DeleteData: c.deleteData, DeleteRemote: c.debrid && c.deleteRemote}
+}
+
+// removeDebridCmd removes a debrid item off the UI thread: the cloud delete
+// waits on the service for up to 15 seconds.
+func (a *App) removeDebridCmd(conf *removeConfirm) tea.Cmd {
+	eng, it := a.eng, conf.item
+	opts := conf.options()
+	return func() tea.Msg {
+		res, err := eng.RemoveWithOptions(it.Hash, opts)
+		return removeDebridDoneMsg{item: it, res: res, err: err}
+	}
+}
+
+// onRemoveDebrid forgets the row and says what happened to the cloud copy.
+func (a *App) onRemoveDebrid(msg removeDebridDoneMsg) tea.Cmd {
+	if msg.err != nil {
+		return a.showError("remove failed: " + msg.err.Error())
+	}
+	if a.st != nil {
+		a.st.Remove(msg.item.Magnet)
+	}
+	a.downloads.snaps = a.eng.Snapshots()
+	a.refreshDownloadItems()
+	cmds := []tea.Cmd{a.saveState()}
+	switch {
+	case msg.res.Note != "":
+		// A failed cloud delete never fails the remove, but the user must
+		// know the copy is still on the service (J3.5).
+		cmds = append(cmds, a.showToast(msg.res.Note, toastWarn, toastLong))
+	case msg.res.RemoteDeleted:
+		cmds = append(cmds, a.showToast("removed · deleted from Real-Debrid", toastRoute, toastQuick))
+	}
+	return tea.Batch(cmds...)
+}
+
+// downloadAsTorrent is the `t` key (Q1): a debrid row that Real-Debrid
+// refused is dropped and its magnet starts as a normal torrent.
+func (a *App) downloadAsTorrent(it downloadItem) tea.Cmd {
+	if !it.Failed || !it.Live || !strings.HasPrefix(it.Magnet, "magnet:") {
+		if a.debridDownload(it) && it.Live {
+			return a.showError("t starts a torrent only after Real-Debrid refuses it")
+		}
+		return nil
+	}
+	eng := a.eng
+	return func() tea.Msg {
+		res, err := eng.RemoveWithOptions(it.Hash, engine.RemoveOptions{DeleteRemote: true})
+		return torrentFallbackMsg{item: it, res: res, err: err}
+	}
+}
+
+func (a *App) onTorrentFallback(msg torrentFallbackMsg) tea.Cmd {
+	if msg.err != nil {
+		return a.showError("remove failed: " + msg.err.Error())
+	}
+	it := msg.item
+	dir := it.DownloadDir
+	if dir == "" && a.cfg != nil {
+		dir = a.cfg.DownloadDir
+	}
+	seed := false
+	if a.cfg != nil {
+		seed = a.cfg.SeedAfterComplete
+	}
+	if a.st != nil {
+		a.st.Remove(it.Magnet)
+	}
+	_, err := a.eng.AddWithOptions(it.Magnet, engine.AddOptions{DownloadDir: dir, Seed: &seed})
+	a.downloads.snaps = a.eng.Snapshots()
+	a.refreshDownloadItems()
+	if err != nil {
+		return tea.Batch(a.saveState(), a.showError("torrent start failed: "+err.Error()))
+	}
+	return tea.Batch(a.saveState(), a.ensureTick(), a.showToast("started as a torrent · "+it.Name, toastOK, toastQuick))
 }
 
 func (a *App) selectedDownload(items []downloadItem) (downloadItem, bool) {
@@ -535,7 +658,7 @@ func (a *App) buildDownloadItems() []downloadItem {
 	if a.st == nil {
 		out := make([]downloadItem, 0, len(a.downloads.snaps))
 		for _, s := range a.downloads.snaps {
-			out = append(out, itemFromSnapshot(s, -1, true))
+			out = append(out, a.itemFromSnap(s, -1))
 		}
 		return out
 	}
@@ -545,7 +668,7 @@ func (a *App) buildDownloadItems() []downloadItem {
 	for i := range a.st.Entries {
 		e := &a.st.Entries[i]
 		if s, ok := snapsByMagnet[e.Magnet]; ok {
-			out = append(out, itemFromSnapshot(s, i, true))
+			out = append(out, a.itemFromSnap(s, i))
 			used[e.Magnet] = true
 			continue
 		}
@@ -553,7 +676,7 @@ func (a *App) buildDownloadItems() []downloadItem {
 	}
 	for _, s := range a.downloads.snaps {
 		if !used[s.Magnet] {
-			out = append(out, itemFromSnapshot(s, -1, true))
+			out = append(out, a.itemFromSnap(s, -1))
 		}
 	}
 	return out
@@ -579,7 +702,7 @@ func (d *downloadsModel) syncSelection(items []downloadItem) {
 
 func downloadStatePriority(s engine.TorrentState) int {
 	switch s {
-	case engine.StateDownloading, engine.StateFetchingMeta, engine.StateVerifying, engine.StatePreviewing:
+	case engine.StateDownloading, engine.StateFetchingMeta, engine.StateVerifying, engine.StatePreviewing, engine.StateRemote:
 		return 0
 	case engine.StatePaused:
 		return 1
@@ -598,6 +721,10 @@ func summarizeDownloads(items []downloadItem) downloadMetrics {
 	var m downloadMetrics
 	m.Total = len(items)
 	for _, it := range items {
+		if it.Route == routeCloud { // Real-Debrid's bytes and speed are not ours
+			m.Cloud++
+			continue
+		}
 		if it.Length > 0 {
 			m.Length += it.Length
 			completed := min(it.BytesCompleted, it.Length)
@@ -610,11 +737,7 @@ func summarizeDownloads(items []downloadItem) downloadMetrics {
 		m.PeersActive += it.PeersActive
 		m.PeersTotal += it.PeersTotal
 		m.Seeders += it.Seeders
-		switch it.Route {
-		case routeCloud:
-			m.Cloud++
-			continue
-		case routeStarting:
+		if it.Route == routeStarting {
 			m.Starting++
 			continue
 		}
@@ -639,8 +762,21 @@ func summarizeDownloads(items []downloadItem) downloadMetrics {
 	return m
 }
 
+// itemFromSnap is itemFromSnapshot plus the one engine lookup a snapshot
+// cannot answer: whether a held debrid row was refused (Failed) or only
+// stopped.
+func (a *App) itemFromSnap(s engine.Snapshot, idx int) downloadItem {
+	it := itemFromSnapshot(s, idx, true)
+	if it.ViaDebrid && s.State == engine.StatePaused && a.eng != nil {
+		if info, ok := a.eng.DebridItem(s.Hash); ok && info.Phase == engine.DebridFailed {
+			it.Failed = true
+		}
+	}
+	return it
+}
+
 func itemFromSnapshot(s engine.Snapshot, idx int, live bool) downloadItem {
-	return downloadItem{
+	it := downloadItem{
 		Hash: s.Hash, Magnet: s.Magnet, Name: s.Name,
 		DownloadDir: s.DownloadDir, DataPath: s.DataPath,
 		BytesCompleted: s.BytesCompleted, Length: s.Length,
@@ -651,6 +787,51 @@ func itemFromSnapshot(s engine.Snapshot, idx int, live bool) downloadItem {
 		State: s.State, Note: s.Note, Seed: s.Seed,
 		Live: live, EntryIndex: idx,
 	}
+	it.ViaDebrid = s.Via != "" || s.Debrid != nil
+	if s.Debrid != nil {
+		it.RemoteFiles = len(s.Debrid.RemoteFiles)
+	}
+	switch {
+	case s.State == engine.StateRemote:
+		it.Route = routeCloud
+		it.CloudProgress = cloudProgress(s)
+		it.CloudNote = cloudNote(s)
+	case s.State == engine.StateFetchingMeta && it.ViaDebrid:
+		it.Route = routeStarting
+	}
+	return it
+}
+
+// cloudProgress is Real-Debrid's own progress, 0 to 1.
+func cloudProgress(s engine.Snapshot) float64 {
+	if s.Length > 0 {
+		return clampProgress(float64(s.BytesCompleted) / float64(s.Length))
+	}
+	if s.Remote != nil {
+		return clampProgress(s.Remote.Progress / 100)
+	}
+	return 0
+}
+
+// cloudNote is the row's right-hand text for a cloud item:
+// "Real-Debrid 43 % · 12 MiB/s · 8 seeders", or "queued on Real-Debrid".
+func cloudNote(s engine.Snapshot) string {
+	if s.Remote != nil {
+		switch s.Remote.Status {
+		case debrid.Queued, debrid.WaitingSelection:
+			return "queued on Real-Debrid"
+		case debrid.Ready:
+			return "Real-Debrid ready"
+		}
+	}
+	parts := []string{fmt.Sprintf("Real-Debrid %d %%", int(cloudProgress(s)*100))}
+	if s.SpeedBps > 0 {
+		parts = append(parts, humanSpeed(s.SpeedBps))
+	}
+	if s.Seeders > 0 {
+		parts = append(parts, plural(s.Seeders, "seeder"))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (a *App) itemFromEntry(e *state.Entry, idx int) downloadItem {
@@ -690,7 +871,7 @@ func (a *App) itemFromEntry(e *state.Entry, idx int) downloadItem {
 		Magnet: e.Magnet, Name: name, DownloadDir: e.DownloadDir, DataPath: e.DataPath,
 		BytesCompleted: e.BytesCompleted, Length: e.Length,
 		State: st, Note: note, Seed: e.SeedEnabled(defaultSeed),
-		EntryIndex: idx,
+		EntryIndex: idx, ViaDebrid: e.Via != "",
 	}
 }
 
@@ -1121,7 +1302,15 @@ func (a *App) viewDownloads() string {
 		if d.confirmRemove.deleteData {
 			verb = "delete data"
 		}
-		help = styleErr.Render(verb+"?  ") + hints(hint("y/enter", "confirm"), hint("esc", "cancel"))
+		confirm := []string{hint("y/enter", "confirm")}
+		if d.confirmRemove.debrid {
+			cloud := "keep"
+			if d.confirmRemove.deleteRemote {
+				cloud = "delete"
+			}
+			confirm = append(confirm, hint("c", "cloud copy: "+cloud))
+		}
+		help = styleErr.Render(verb+"?  ") + hints(append(confirm, hint("esc", "cancel"))...)
 	}
 	if d.prompt.action != pathActionNone {
 		help = d.prompt.input.View()
@@ -1273,6 +1462,9 @@ func (a *App) downloadGlyph(it downloadItem, frame int) string {
 	case routeStarting:
 		return spinnerGlyph(frame)
 	}
+	if it.Failed {
+		return styleErr.Render("!")
+	}
 	switch it.State {
 	case engine.StateFetchingMeta, engine.StatePreviewing:
 		return spinnerGlyph(frame)
@@ -1312,6 +1504,9 @@ func (a *App) downloadStatus(it downloadItem) string {
 		}
 		return out
 	}
+	if it.Failed && showDownloadNote(it.Note) {
+		return styleErr.Render(strings.TrimPrefix(it.Note, "☁ "))
+	}
 	return downloadRowActivity(it)
 }
 
@@ -1324,6 +1519,9 @@ func (a *App) downloadDetailShown(it downloadItem, width int) bool {
 // per-connection speeds for a multi-connection download, otherwise the save
 // path and transfer facts.
 func (a *App) downloadDetailLine(it downloadItem, width int) string {
+	if text := debridDetail(it); text != "" {
+		return truncate(text, width)
+	}
 	if len(it.Segments) > 0 {
 		return segmentLine(it.Segments, it.ConnSpeeds, width)
 	}
@@ -1351,6 +1549,33 @@ func (a *App) downloadDetailLine(it downloadItem, width int) string {
 		info = append(info, downloadActionHint(it))
 	}
 	return styleDim.Render(truncate(strings.Join(info, " · "), width))
+}
+
+// debridDetail is the selected Real-Debrid row's extra line: the route, the
+// files chosen and what happens next (J4.4). It is "" for every other row,
+// which keep their path or segment line.
+func debridDetail(it downloadItem) string {
+	dim := styleDim.Render
+	route := styleRoute.Render("Route: Real-Debrid")
+	files := ""
+	if it.RemoteFiles > 0 {
+		files = dim(" · ") + dim(plural(it.RemoteFiles, "file")+" selected")
+	}
+	switch {
+	case it.Failed:
+		return route + dim(" · t download as a torrent · x remove")
+	case it.Route == routeCloud:
+		next := " · tork downloads here when Real-Debrid is done; keep torkwd running"
+		if runtime.GOOS == "windows" {
+			next += " or open it again later"
+		}
+		return route + files + dim(next)
+	case it.Route == routeStarting:
+		return route + files + dim(" · checking whether it is ready")
+	case it.ViaDebrid && it.State == engine.StatePaused && showDownloadNote(it.Note):
+		return route + files + dim(" · p retry · x remove")
+	}
+	return ""
 }
 
 // segmentCell is one cell of the segment map.
@@ -1571,12 +1796,15 @@ func (a *App) downloadsFact() string {
 // would vanish from view entirely.
 func (a *App) activityChip() string {
 	m := a.downloads.metrics
+	var chip string
 	switch {
 	case m.Active > 0:
-		return styleOK.Render(fmt.Sprintf("↓ %d", m.Active)) + styleDim.Render("  "+humanSpeed(m.SpeedBps))
+		chip = styleOK.Render(fmt.Sprintf("↓ %d", m.Active)) + styleDim.Render("  "+humanSpeed(m.SpeedBps))
 	case m.Seeding > 0:
-		return styleDim.Render(fmt.Sprintf("↑ %d seeding", m.Seeding))
-	default:
-		return ""
+		chip = styleDim.Render(fmt.Sprintf("↑ %d seeding", m.Seeding))
 	}
+	if chip == "" && m.Cloud > 0 { // only Real-Debrid is working
+		chip = styleRoute.Render(fmt.Sprintf("%s %d", glyphs.cloud, m.Cloud))
+	}
+	return chip
 }

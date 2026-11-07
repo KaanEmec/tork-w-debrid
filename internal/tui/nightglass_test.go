@@ -180,6 +180,8 @@ func downloadsGoldenApp(width, height int) *App {
 			Segments: []segmentCell{2, 2, 1, 1, 0, 0, 2, 2, 1, 0, 0, 0}, ConnSpeeds: []float64{6.1e6, 5.9e6, 6.0e6, 0.4e6}},
 		{Name: "Tears of Steel (2012) 2160p", Route: routeCloud, CloudProgress: 0.43, CloudNote: "Real-Debrid 43 % · 12 MB/s · 8 seeders"},
 		{Name: "Elephants Dream (2006) 1080p", Route: routeStarting},
+		{Name: "Spring (2019) 1080p", Route: routeCloud, CloudNote: "queued on Real-Debrid"},
+		{Name: "Hardcore Henry (2015) 1080p", State: engine.StatePaused, ViaDebrid: true, Failed: true, Note: "☁ RD dead: no seeders"},
 		{Name: "debian-13.1.0-amd64-netinst.iso", State: engine.StateDownloading, Length: 100, BytesCompleted: 88, SpeedBps: 4.4 * (1 << 20), ETA: 12 * time.Second},
 		{Name: "Big Buck Bunny (2008) 1080p", State: engine.StatePaused, Length: 100, BytesCompleted: 31, Note: "paused"},
 		{Name: "ubuntu-24.04.3-desktop-amd64.iso", State: engine.StateSeeding, Length: 6 << 30},
@@ -199,7 +201,7 @@ func TestGoldenDownloads(t *testing.T) {
 		assertGolden(t, fmt.Sprintf("downloads_%dx%d", size[0], size[1]), view)
 	}
 	plain := ansi.Strip(downloadsGoldenApp(120, 36).View())
-	for _, want := range []string{"↓ 27.3 MiB/s · ☁\uFE0E 1", "Real-Debrid 43 % · 12 MB/s · 8 seeders", "starting", "Ⅱ", "done", "4 connections · 6.1 · 5.9 · 6.0 · 0.4 MB/s", "via Real-Debrid", "64%"} {
+	for _, want := range []string{"↓ 27.3 MiB/s · ☁\uFE0E 2", "Real-Debrid 43 % · 12 MB/s · 8 seeders", "starting", "Ⅱ", "done", "4 connections · 6.1 · 5.9 · 6.0 · 0.4 MB/s", "via Real-Debrid", "64%"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("downloads missing %q", want)
 		}

@@ -287,6 +287,11 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// selected action completes, so processing these globally is safe.
 		return a.updateResults(msg)
 
+	case removeDebridDoneMsg:
+		return a, a.onRemoveDebrid(msg)
+	case torrentFallbackMsg:
+		return a, a.onTorrentFallback(msg)
+
 	case clearErrMsg:
 		if msg.gen == a.errGen {
 			a.errText = ""
