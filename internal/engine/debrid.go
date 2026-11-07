@@ -418,22 +418,6 @@ func (e *Engine) CancelDebridPreview(h metainfo.Hash) {
 	}
 }
 
-// removeDebrid stops a debrid item's poller and forgets it. The remote copy
-// and local data are J3.5's business (RemoveOptions).
-func (e *Engine) removeDebrid(h metainfo.Hash, it *debridItem) error {
-	e.mu.Lock()
-	if e.debrid[h] == it {
-		delete(e.debrid, h)
-	}
-	e.stopDebridPollLocked(it)
-	done := it.pollDone
-	e.mu.Unlock()
-	if done != nil {
-		<-done
-	}
-	return nil
-}
-
 // deleteRemoteLater deletes a remote torrent on a tracked goroutine, bounded
 // by debridTuning.cleanupWait and cancelled by Close.
 func (e *Engine) deleteRemoteLater(p debrid.Provider, id string) {
@@ -592,6 +576,9 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			it.name = info.Name
 		}
 		if it.phase != DebridPreview {
+			if safeDirectFilename(info.Name) {
+				it.name = info.Name // the folder's name (D5), so relink matches it
+			}
 			if path := it.debridDataPath(info); path != "" {
 				it.dataPath = path
 			}

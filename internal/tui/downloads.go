@@ -698,6 +698,9 @@ func (a *App) toggleSeed(it downloadItem) tea.Cmd {
 	if strings.HasPrefix(it.Magnet, "http://") || strings.HasPrefix(it.Magnet, "https://") {
 		return a.showError("direct downloads cannot seed")
 	}
+	if a.debridDownload(it) {
+		return a.showError("debrid downloads don't seed") // D6
+	}
 	next := !it.Seed
 	if it.Live {
 		if err := a.eng.SetSeeding(it.Hash, next); err != nil {
@@ -712,6 +715,24 @@ func (a *App) toggleSeed(it downloadItem) tea.Cmd {
 	}
 	a.refreshDownloadItems()
 	return save
+}
+
+// debridDownload reports whether a row goes through a debrid service.
+func (a *App) debridDownload(it downloadItem) bool {
+	if it.ViaDebrid {
+		return true
+	}
+	if a.st != nil {
+		if e := a.st.Find(it.Magnet); e != nil && e.Via != "" {
+			return true
+		}
+	}
+	if it.Live && a.eng != nil {
+		if s, ok := a.eng.Snapshot(it.Hash); ok && s.Via != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) togglePause(it downloadItem) tea.Cmd {

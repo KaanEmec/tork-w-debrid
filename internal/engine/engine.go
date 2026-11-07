@@ -84,6 +84,11 @@ type VerifyResult struct {
 	NeedsRepair      bool
 	ChecksumMismatch bool
 	QuarantinePath   string
+	// Debrid downloads have no piece hashes: their files' sizes are compared
+	// with the service's. WrongSize files are moved aside (QuarantinePath is
+	// the first) and downloaded again, with NeedsRepair set.
+	CheckedFiles int
+	WrongSize    int
 }
 
 // FileInfo describes one file inside a torrent, for the preview screen.
@@ -906,9 +911,14 @@ func (e *Engine) StartDownload(h metainfo.Hash, excluded []int) {
 }
 
 // Pause drops the torrent from the client but keeps its entry; piece
-// completion makes resuming cheap. A direct download keeps its .part file.
+// completion makes resuming cheap. A direct download keeps its .part file. A
+// debrid item stops polling (cloud phase) or stops its files (local phase).
 func (e *Engine) Pause(h metainfo.Hash) error {
 	e.mu.Lock()
+	if di, ok := e.debrid[h]; ok {
+		e.mu.Unlock()
+		return e.pauseDebrid(h, di)
+	}
 	if d, ok := e.direct[h]; ok {
 		if d.state == StateVerifying {
 			e.mu.Unlock()
@@ -1014,7 +1024,8 @@ func (e *Engine) Remove(h metainfo.Hash, deleteData bool) error {
 	e.mu.Lock()
 	if di, ok := e.debrid[h]; ok {
 		e.mu.Unlock()
-		return e.removeDebrid(h, di)
+		_, err := e.removeDebrid(h, di, RemoveOptions{DeleteData: deleteData})
+		return err
 	}
 	if d, ok := e.direct[h]; ok {
 		if d.state == StateVerifying {
@@ -1073,6 +1084,10 @@ func (e *Engine) Verify(ctx context.Context, h metainfo.Hash) (result VerifyResu
 	if _, ok := e.direct[h]; ok {
 		e.mu.Unlock()
 		return e.verifyDirectDownload(ctx, h)
+	}
+	if di, ok := e.debrid[h]; ok {
+		e.mu.Unlock()
+		return e.verifyDebrid(ctx, h, di)
 	}
 	it, ok := e.items[h]
 	if !ok {
