@@ -172,6 +172,8 @@ func (a *App) headerFact() string {
 		return a.previewFact()
 	case screenSources:
 		return a.sourcesFact()
+	case screenSettings:
+		return a.settingsFact()
 	}
 	return a.activityChip()
 }

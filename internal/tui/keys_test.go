@@ -10,7 +10,7 @@ import (
 )
 
 var allScreens = []screen{
-	screenSearch, screenISOs, screenResults, screenPreview, screenDownloads, screenHealth,
+	screenSearch, screenISOs, screenResults, screenPreview, screenDownloads, screenHealth, screenSettings,
 }
 
 // The footer shares its line with the right-aligned proxy badge, so a strip
