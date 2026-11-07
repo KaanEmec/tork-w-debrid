@@ -27,7 +27,7 @@ func runIntro(args []string, stdoutTTY, stdinTTY bool, stderr io.Writer) error {
 		return errors.New("usage: torkwd intro [--no-motion]")
 	}
 	if !stdoutTTY || !stdinTTY {
-		fmt.Fprintln(stderr, "tork: the intro needs a terminal; nothing to show")
+		fmt.Fprintln(stderr, "torkwd: the intro needs a terminal; nothing to show")
 		return nil
 	}
 	if tui.DetectASCII() {
