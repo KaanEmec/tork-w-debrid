@@ -55,7 +55,7 @@ func previewSummaryApp() *App {
 func TestPreviewSummaryAndExtrasSelection(t *testing.T) {
 	a := previewSummaryApp()
 	view := a.View()
-	for _, want := range []string{"Selected 3.0 GiB", "1 of 3 files", "Save to", "/downloads/tork", "enter download", "Extras"} {
+	for _, want := range []string{"3.0 GiB selected", "1 of 3 files", "save to", "/downloads/tork", "enter download", "Extras"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("preview missing %q", want)
 		}
@@ -86,7 +86,7 @@ func TestPreviewSummaryAndExtrasSelection(t *testing.T) {
 		t.Fatal("preview should show actual engine destination")
 	}
 	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
-	if !strings.Contains(a.View(), "select a file to download") {
+	if !strings.Contains(a.View(), "nothing selected") {
 		t.Fatal("empty selection still suggests download")
 	}
 	if a.preview.files[1].Path != "Release/info.nfo" {
@@ -103,7 +103,7 @@ func TestPreviewSummaryFitsShortAndNarrowWindows(t *testing.T) {
 		if len(strings.Split(view, "\n")) != a.height {
 			t.Fatal("preview overflows screen height")
 		}
-		for _, want := range []string{"Selected", "Save to", "enter download", "Extras"} {
+		for _, want := range []string{"selected", "save to", "enter download", "Extras"} {
 			if !strings.Contains(view, want) {
 				t.Errorf("width %d missing %q", w, want)
 			}

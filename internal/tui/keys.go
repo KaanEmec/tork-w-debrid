@@ -28,6 +28,7 @@ func inCard(key, label string) keyHint  { return keyHint{key: key, label: label}
 var globalKeys = []keyHint{
 	inCard("F1 / F2", "home / latest results"),
 	inCard("F3 / F4", "downloads / sources"),
+	inCard("F5", "settings"),
 	inCard("tab / shift+tab", "home: focus controls; elsewhere: downloads / back"),
 	inCard("esc", "back or cancel current step"),
 	inCard("^d", "downloads"),
@@ -47,6 +48,7 @@ func (a *App) screenKeys() []keyHint {
 		return []keyHint{
 			onStrip("enter", a.homeEnterLabel()),
 			choose,
+			onStrip("tab", "menu"),
 			inCard("tab / shift+tab", "next / previous control"),
 			inCard("paste", "a magnet, infohash, .torrent path or URL"),
 			inCard("esc", "focus search, then clear the field"),
@@ -71,7 +73,11 @@ func (a *App) screenKeys() []keyHint {
 			return []keyHint{onStrip("↑↓", "choose source"), onStrip("t", "retry source"), onStrip("s / esc", "back to results"), inCard("pgup/pgdn", "page"), inCard("g/G", "top / bottom")}
 		}
 		if a.results.curated {
-			return []keyHint{onStrip("enter", a.resultEnterLabel()), onStrip("/", "filters"), onStrip("tab", "downloads"), onStrip("esc", "back"), inCard("↑↓", "choose a release"), inCard("s", "source status for this search"), inCard("v", "full list / top picks"), inCard("f", "advanced text filter"), inCard("D", "download now, skipping the preview"), inCard("Y", "copy magnet")}
+			esc := inCard("esc", "back")
+			if a.results.searching {
+				esc = onStrip("esc", "stop")
+			}
+			return []keyHint{onStrip("enter", a.resultEnterLabel()), onStrip("/", "filter"), onStrip("v", "all results"), esc, inCard("tab", "downloads"), inCard("↑↓", "choose a release"), inCard("s", "source status for this search"), inCard("c", "categories"), inCard("f", "advanced text filter"), inCard("D", "download now, skipping the preview"), inCard("Y", "copy magnet")}
 		}
 		if a.results.grouped {
 			return []keyHint{
@@ -108,16 +114,16 @@ func (a *App) screenKeys() []keyHint {
 		}
 
 	case screenPreview:
-		toggle := "toggle"
+		toggle := "choose"
 		if n := a.preview.currentNode(); n != nil && n.fileIdx < 0 {
-			toggle = "toggle folder"
+			toggle = "choose folder"
 		}
 		return []keyHint{
 			onStrip("enter", a.previewDownloadLabel()),
 			onStrip("space", toggle),
+			onStrip("a", "all"),
 			inCard("←→", "fold"),
-			onStrip("esc", "cancel"),
-			inCard("a", "select every file"),
+			onStrip("esc", "back"),
 			inCard("n", "select none"),
 			inCard("g/G", "top / bottom"),
 		}
@@ -132,7 +138,10 @@ func (a *App) screenKeys() []keyHint {
 		if a.sources.removing != "" {
 			return []keyHint{onStrip("y", "remove source"), onStrip("esc", "cancel")}
 		}
-		return []keyHint{onStrip("a", "add sources"), onStrip("enter", "enable / disable"), onStrip("r", "check enabled"), onStrip("esc", "back"), inCard("t", "test selected source"), inCard("↑↓", "choose"), inCard("space", "enable / disable"), inCard("e", "edit custom source"), inCard("x", "remove custom source"), inCard("pgup/pgdn", "page"), inCard("g/G", "top / bottom")}
+		return []keyHint{onStrip("enter", "on/off"), onStrip("a", "add"), onStrip("r", "check"), onStrip("esc", "back"), inCard("t", "test selected source"), inCard("↑↓", "choose"), inCard("space", "enable / disable"), inCard("e", "edit custom source"), inCard("x", "remove custom source"), inCard("pgup/pgdn", "page"), inCard("g/G", "top / bottom")}
+
+	case screenSettings:
+		return a.settingsKeys()
 
 	case screenHealth:
 		return []keyHint{
@@ -171,15 +180,25 @@ func (a *App) screenKeys() []keyHint {
 // than run off the edge - the card holds every key anyway.
 func (a *App) keyStrip(width int) string {
 	const sep = 3 // hints() joins with three spaces
+	const maxHints = 5
 	var parts []string
 	for _, kh := range a.screenKeys() {
-		if kh.strip {
+		if kh.strip && len(parts) < maxHints {
 			parts = append(parts, hint(kh.key, kh.label))
 		}
 	}
 	parts = append(parts, hint("?", "keys"))
-	for len(parts) > 1 && stripWidth(parts, sep) > width {
+	for len(parts) > 2 && stripWidth(parts, sep) > width {
 		parts = append(parts[:len(parts)-2], parts[len(parts)-1])
+	}
+	// On the narrowest terminals the screen's main action beats the pointer
+	// to the card.
+	if len(parts) == 2 && stripWidth(parts, sep) > width {
+		if lipgloss.Width(parts[0]) <= width {
+			parts = parts[:1]
+		} else {
+			parts = parts[1:]
+		}
 	}
 	return hints(parts...)
 }
@@ -221,6 +240,8 @@ func (a *App) screenTitle() string {
 		return "sources"
 	case screenHealth:
 		return "health"
+	case screenSettings:
+		return "settings"
 	default:
 		return "downloads"
 	}
@@ -287,5 +308,5 @@ func (a *App) previewDownloadLabel() string {
 	if a.preview.selectedBytes() == 0 {
 		return "select files first"
 	}
-	return "download selected"
+	return "download"
 }

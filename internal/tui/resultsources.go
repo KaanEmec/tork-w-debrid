@@ -195,5 +195,5 @@ func (a *App) viewResultSources() string {
 			body += "\n" + styleDim.Render("Other sources continue. t retry this source now.")
 		}
 	}
-	return a.chrome("results · "+r.query+" · sources", body, a.keyStrip(a.helpBudget(w)))
+	return a.chrome(a.resultsContext("sources"), body, a.keyStrip(a.helpBudget(w)))
 }

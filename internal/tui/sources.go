@@ -352,6 +352,105 @@ func (a *App) sourceStatus(s sources.Source) string {
 	return sourceFailure(r.probe)
 }
 
+// slowSourceMS is the latency above which a working source shows amber.
+const slowSourceMS = 1500
+
+// sourceRow draws one source: a dot (accent when working, amber when slow or
+// failing, muted ○ when off), the name in 20 cells, and the status in muted.
+func (a *App) sourceRow(s sources.Source, selected bool, width int) string {
+	text := a.sourceStatus(s)
+	dot, dotStyle, statusStyle := "●", styleOK, styleDim
+	nameStyle := styleText
+	switch {
+	case a.sources.saving == s.ID || a.sources.checking[s.ID]:
+		dot, dotStyle = "·", styleDim
+	case !s.Config.Enabled:
+		dot, dotStyle, nameStyle = "○", styleDim, styleDim
+		if text == "disabled" {
+			text = "off"
+		}
+	case strings.HasPrefix(text, "working · "):
+		text = strings.TrimPrefix(text, "working · ")
+		if r, ok := a.sourceReading(s); ok && r.probe.LatencyMS >= slowSourceMS {
+			text = fmt.Sprintf("slow · %.1fs", float64(r.probe.LatencyMS)/1000)
+			dotStyle, statusStyle = styleWarn, styleWarn
+		}
+	case text == "not checked":
+		dotStyle = styleDim
+	default:
+		dotStyle, statusStyle = styleWarn, styleWarn
+	}
+	if selected {
+		nameStyle = styleFg.Bold(true)
+	}
+	nameW := 20
+	if width < 50 {
+		nameW = max(8, width-24)
+	}
+	name := padRight(truncate(s.Label, nameW), nameW)
+	return " " + dotStyle.Render(dot) + "  " + nameStyle.Render(name) + "  " + statusStyle.Render(text)
+}
+
+// sourcesFact is the sources header's right side: "7 of 9 on".
+func (a *App) sourcesFact() string {
+	if a.cfg == nil {
+		return ""
+	}
+	list := sources.List(a.cfg)
+	on := 0
+	for _, s := range list {
+		if s.Config.Enabled {
+			on++
+		}
+	}
+	return styleDim.Render(fmt.Sprintf("%d of %d on", on, len(list)))
+}
+
+// sourcesCheckLine is the line above the footer: when a source was last
+// checked, and when the scheduled health check runs next.
+func (a *App) sourcesCheckLine(list []sources.Source) string {
+	var last time.Time
+	for _, s := range list {
+		if r, ok := a.sourceReading(s); ok && r.at.After(last) {
+			last = r.at
+		}
+	}
+	parts := []string{}
+	if !last.IsZero() {
+		parts = append(parts, "checked "+agoLabel(time.Since(last)))
+	}
+	if a.health != nil && a.cfg != nil && a.cfg.Health.Enabled {
+		if daily, ok := a.health.LastDaily(); ok {
+			if wait := time.Until(daily.Add(a.cfg.Health.Interval())); wait > 0 {
+				parts = append(parts, "next check in "+durationLabel(wait))
+			} else {
+				parts = append(parts, "next check due")
+			}
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// agoLabel is "just now", "5m ago", "3h ago" or "2d ago".
+func agoLabel(d time.Duration) string {
+	if d < time.Minute {
+		return "just now"
+	}
+	return durationLabel(d) + " ago"
+}
+
+// durationLabel rounds to one unit: "5m", "6h", "2d".
+func durationLabel(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", max(1, int(d.Minutes())))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
 func (a *App) viewSources() string {
 	if a.sources.catalog != nil {
 		return a.viewSourceCatalog()
@@ -361,48 +460,31 @@ func (a *App) viewSources() string {
 	}
 	list := sources.List(a.cfg)
 	width := a.contentWidth()
-	lines := []string{styleTitle.Render("Search sources"), styleDim.Render("Choose an index below, or press a to add more sources."), ""}
+	var lines []string
 	if len(list) == 0 {
 		lines = append(lines, styleDim.Render("No sources configured."))
 	} else {
-		rows := renderWindow(&a.sources.win, len(list), a.sourceRows(), width, func(i int, selected bool) string {
-			s := list[i]
-			state := "off"
-			if s.Config.Enabled {
-				state = "on "
-			}
-			if a.sources.saving == s.ID {
-				state = "…  "
-			}
-			label := padRight(s.Label, 23)
-			if width < 65 {
-				labelWidth := max(8, min(20, width-18))
-				label = padRight(truncate(s.Label, labelWidth), labelWidth)
-			}
-			text := a.sourceStatus(s)
-			status := styleDim.Render(text)
-			if strings.HasPrefix(text, "working ·") {
-				status = styleOK.Render(text)
-			} else if !a.sources.checking[s.ID] && text != "not checked" && text != "disabled" {
-				status = styleHealthMid.Render(text)
-			}
-			return fmt.Sprintf("[%s] %s %s", state, label, status)
+		rows := renderWindow(&a.sources.win, len(list), min(len(list), a.sourceRows()), width, func(i int, selected bool) string {
+			return a.sourceRow(list[i], selected, width-1)
 		})
-		lines = append(lines, rows, "")
+		lines = append(lines, rows)
+	}
+	lines = append(lines, "", "  "+styleDim.Render("+ add a source"))
+	if len(list) > 0 {
 		selected := list[a.sources.win.cursor]
-		detail := a.sourceStatus(selected)
-		if r, ok := a.sourceReading(selected); ok && !a.sources.checking[selected.ID] && !r.unverified {
-			detail += " · checked " + r.at.Local().Format("Jan 2 15:04")
+		detail := sources.Description(selected)
+		if strings.HasPrefix(a.sourceStatus(selected), "blocked") {
+			detail = "Site protection blocked access. Other sources continue. t retry now · enter enable / disable"
 		}
-		description := sources.Description(selected)
-		if strings.HasPrefix(detail, "blocked") {
-			description = "Site protection blocked access. Other sources continue. t retry now · enter enable / disable"
-		}
-		lines = append(lines, styleDim.Render(detail), styleDim.Render(description))
+		lines = append(lines, "", "  "+styleDim.Render(detail))
 	}
 	if a.sources.removing != "" {
 		label := provider.SanitizeDisplayText(a.sources.removing, 64)
 		lines = []string{styleTitle.Render("Remove custom source?"), "", label, "", styleDim.Render("Existing search results remain usable. Press y to remove, esc to cancel.")}
 	}
-	return a.chrome("sources", strings.Join(lines, "\n"), a.keyStrip(a.helpBudget(width)))
+	body := padLines(fitBlockWidth(strings.Join(lines, "\n"), width), max(1, a.bodyHeight()-1))
+	if check := a.sourcesCheckLine(list); check != "" && a.sources.removing == "" {
+		body += "\n  " + styleDim.Render(check)
+	}
+	return a.chrome("sources", body, a.keyStrip(a.helpBudget(width)))
 }

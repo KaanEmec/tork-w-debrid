@@ -39,6 +39,7 @@ type previewModel struct {
 	selectedCount int
 	warningCount  int
 	dirCount      int
+	viaDebrid     bool // the file list came from Real-Debrid, no swarm contacted (J4.1, D3)
 }
 
 func newPreviewModel(h metainfo.Hash, magnet, name string, from screen, owned bool) previewModel {
@@ -373,6 +374,23 @@ func (a *App) startPreviewDownload() tea.Cmd {
 	return tea.Batch(a.saveState(), a.ensureTick(), a.showToast(queuedToast(p.name), toastOK, toastQuick))
 }
 
+// previewContext is the preview header's breadcrumb: "<query> › preview".
+func (a *App) previewContext() string {
+	if q := strings.TrimSpace(a.results.query); q != "" && a.preview.from == screenResults {
+		return q + crumbSep + "preview"
+	}
+	return "preview"
+}
+
+// previewFact is the preview header's right side: "2 of 9 files".
+func (a *App) previewFact() string {
+	p := &a.preview
+	if !p.ready {
+		return ""
+	}
+	return styleDim.Render(fmt.Sprintf("%d of %d files", p.selectedFiles(), len(p.files)))
+}
+
 func (a *App) viewPreview() string {
 	p := &a.preview
 	width := a.contentWidth()
@@ -390,47 +408,63 @@ func (a *App) viewPreview() string {
 		if hasStatus && status.Summary() != "" {
 			discovery = status.Summary()
 		}
-		detail := styleFaint.Render("needs a peer with metadata; may take a moment")
+		detail := styleDim.Render("needs a peer with metadata; may take a moment")
 		if waited >= 10*time.Second {
-			detail = styleFaint.Render("still looking; press enter to queue the whole torrent now")
+			detail = styleDim.Render("still looking; press enter to queue the whole torrent now")
 		}
 		msg := lipgloss.JoinVertical(lipgloss.Center,
-			styleFg.Render(truncate(p.name, width-4)),
+			styleFg.Bold(true).Render(truncate(p.name, width-4)),
 			"",
-			styleDim.Render("finding metadata peers…"),
-			styleFaint.Render(discovery),
+			spinnerGlyph(a.vframe())+styleDim.Render(" finding metadata peers…"),
+			styleDim.Render(discovery),
 			detail,
-			styleDim.Render("Save to "+a.previewDestination()),
+			styleDim.Render("save to "+a.previewDestination()),
 		)
 		body := lipgloss.Place(width, a.bodyHeight(), lipgloss.Center, lipgloss.Center, msg)
-		return a.chrome("preview", body, hints(hint("enter", "queue all now"), hint("esc", "cancel")))
+		return a.chrome(a.previewContext(), body, hints(hint("enter", "queue all now"), hint("esc", "cancel")))
 	}
 
 	var b strings.Builder
-	b.WriteString(styleFg.Bold(true).Render(truncate(p.name, width)) + "\n")
-	b.WriteString(styleOK.Render("Selected "+humanBytes(p.selectedBytes())) + styleDim.Render(fmt.Sprintf(" · %d of %d files", p.selectedFiles(), len(p.files))) + "\n")
-	b.WriteString(styleDim.Render("Save to  ") + styleFg.Render(a.previewDestination()) + "\n")
-	action := styleBrand.Render("enter download") + styleDim.Render(" · space choose files")
+	b.WriteString("  " + styleFg.Bold(true).Render(truncate(p.name, width-2)) + "\n")
+	selected := styleOK.Render(humanBytes(p.selectedBytes()) + " selected")
 	if p.selectedBytes() == 0 {
-		action = styleDim.Render("space select a file to download")
+		selected = styleDim.Render("nothing selected · space chooses a file")
 	}
-	b.WriteString(action + "\n\n")
-	info := "Files"
+	save := styleDim.Render("save to " + a.previewDestination())
+	oneLine := width >= 60
+	if oneLine {
+		selected += styleDim.Render("  ·  ") + save
+	}
+	if a.debridRouting() {
+		selected += styleDim.Render("  ·  ") + styleRoute.Render("via Real-Debrid")
+	}
+	b.WriteString("  " + selected + "\n")
+	info := ""
+	if !oneLine {
+		info = "save to " + a.previewDestination()
+	}
 	if p.autoSkipped > 0 {
-		info += fmt.Sprintf(" · %d extras grouped (→ expand)", p.autoSkipped)
+		if info != "" {
+			info += " · "
+		}
+		info += fmt.Sprintf("%d extras grouped (→ expand)", p.autoSkipped)
 	}
 	if n := p.flaggedCount(); n > 0 {
-		info += fmt.Sprintf(" · %d flagged", n)
+		if info != "" {
+			info += " · "
+		}
+		info += fmt.Sprintf("%d flagged", n)
 	}
-	b.WriteString(styleDim.Render(info) + "\n")
+	b.WriteString("  " + styleDim.Render(info) + "\n")
 
 	lay := newPreviewLayout(width)
-	maxFile := p.largestFile()
 	b.WriteString(renderWindow(&p.win, len(p.rows), a.previewRows(), width, func(i int, selected bool) string {
-		return p.renderNode(p.rows[i], lay, maxFile)
+		return p.renderNode(p.rows[i], lay, selected)
 	}))
-
-	return a.chrome("preview", b.String(), a.keyStrip(a.helpBudget(width)))
+	if p.viaDebrid && a.bodyHeight() >= 8 {
+		b.WriteString("\n\n  " + styleDim.Render("file list from Real-Debrid · no swarm contacted"))
+	}
+	return a.chrome(a.previewContext(), b.String(), a.keyStrip(a.helpBudget(width)))
 }
 
 func (p *previewModel) flaggedCount() int {
@@ -459,74 +493,66 @@ func (p *previewModel) checkbox(n *fileNode) string {
 	case checkAll:
 		return styleOK.Render("[✓]")
 	case checkMixed:
-		return styleHealthMid.Render("[-]")
+		return styleWarn.Render("[-]")
 	default:
-		return styleFaint.Render("[ ]")
+		return styleDim.Render("[ ]")
 	}
 }
 
-func (p *previewModel) renderNode(n *fileNode, lay previewLayout, maxFile int64) string {
+// renderNode draws one file-tree row: the [✓] box, the indented ▾/▸ folder
+// or file-kind icon, the name, a rose ⚠ for risky files, and the size
+// right-aligned.
+func (p *previewModel) renderNode(n *fileNode, lay previewLayout, selected bool) string {
 	icon, _ := fileKind(n.name)
 	size := n.length
-	bar := ""
 	risk := ""
+	excluded := false
 	if n.fileIdx >= 0 {
 		if f, ok := p.fileByIndex(n.fileIdx); ok {
 			size = f.Length
-			bar = fileSizeBar(size, maxFile, lay.barW)
 			if riskFor(f.Path) != "" {
-				risk = styleHealthMid.Render("⚠")
+				risk = styleErr.Render("⚠")
 			}
 		}
+		excluded = p.excluded[n.fileIdx]
 	} else {
-		// Fold arrows are tinted and folder names carry a trailing slash: the
-		// video icon is also a right-pointing triangle, so an unmarked ▸ next to
-		// a file name reads as "a folder you have not opened yet".
+		// Folder names carry a trailing slash: the video icon is also a
+		// right-pointing triangle, so an unmarked ▸ next to a file name reads as
+		// "a folder you have not opened yet".
+		icon = "▾"
 		if n.collapsed {
-			icon = styleKey.Render("▸")
-		} else {
-			icon = styleKey.Render("▾")
+			icon = "▸"
 		}
-		bar = styleFaint.Render(strings.Repeat("░", lay.barW))
 	}
-	nameW := lay.nameW - n.depth*2 - 2
-	if nameW < 8 {
-		nameW = 8
+	nameStyle := styleText
+	switch {
+	case selected:
+		nameStyle = styleFg.Bold(true)
+	case excluded:
+		nameStyle = styleDim
 	}
+	nameW := max(8, lay.nameW-n.depth*2-2)
 	label := truncate(n.name, nameW)
 	if n.fileIdx < 0 {
-		label = truncate(n.name, nameW-1) + styleKey.Render("/")
+		label = truncate(n.name, nameW-1) + "/"
 	}
-	name := strings.Repeat("  ", n.depth) + icon + " " + label
-	line := fmt.Sprintf("%s  %s %s %s %*s",
+	name := strings.Repeat("  ", n.depth) + styleDim.Render(icon) + " " + nameStyle.Render(label)
+	return fmt.Sprintf("%s %s %s %s",
 		p.checkbox(n),
 		padRight(name, lay.nameW),
 		padRight(risk, 1),
-		bar,
-		lay.sizeW, humanBytes(size),
+		styleDim.Render(padLeft(humanBytes(size), lay.sizeW)),
 	)
-	if n.fileIdx >= 0 && p.excluded[n.fileIdx] {
-		line = styleFaint.Render(line)
-	}
-	return line
 }
 
-// previewRows reserves the confirmation summary above the file tree.
+// previewRows reserves the title, selection and info lines above the file
+// tree, and the provenance line below it.
 func (a *App) previewRows() int {
-	return max(1, a.bodyHeight()-6)
-}
-
-func fileSizeBar(size, maxSize int64, cells int) string {
-	if cells < 1 {
-		return ""
+	rows := a.bodyHeight() - 3
+	if a.preview.viaDebrid && a.bodyHeight() >= 8 {
+		rows -= 2
 	}
-	if maxSize <= 0 || size <= 0 {
-		return styleFaint.Render(strings.Repeat("░", cells))
-	}
-	filled := int((size*int64(cells) + maxSize - 1) / maxSize)
-	filled = max(1, min(cells, filled))
-	return styleSeeders.Render(strings.Repeat("▓", filled)) +
-		styleFaint.Render(strings.Repeat("░", cells-filled))
+	return max(1, rows)
 }
 
 func fileKind(name string) (icon, label string) {

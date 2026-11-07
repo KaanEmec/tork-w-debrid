@@ -35,6 +35,9 @@ type Entry struct {
 
 type State struct {
 	Entries []Entry `json:"entries"`
+	// IntroSeenVersion is the version whose intro has played (J8.8); the intro
+	// plays once whenever the running version differs.
+	IntroSeenVersion string `json:"intro_seen_version,omitempty"`
 }
 
 // Load reads the state file. A missing, unreadable, or corrupt file yields an

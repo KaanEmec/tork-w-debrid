@@ -22,7 +22,7 @@ import (
 )
 
 // newDirectTestEngine builds an engine downloading into a temp dir.
-func newDirectTestEngine(t *testing.T) *Engine {
+func newDirectTestEngine(t testing.TB) *Engine {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DOWNLOAD_DIR", filepath.Join(t.TempDir(), "Downloads"))
@@ -441,7 +441,6 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 	if _, err := rand.Read(payload); err != nil {
 		t.Fatal(err)
 	}
-	var active atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"fixed"`)
 		w.Header().Set("Content-Length", fmt.Sprint(len(payload)))
@@ -453,8 +452,6 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 			w.Write(payload)
 			return
 		}
-		active.Add(1)
-		defer active.Add(-1)
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
 		w.WriteHeader(http.StatusPartialContent)
 		for offset := start; offset <= end; {
@@ -472,6 +469,9 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 	defer ts.Close()
 	eng := newDirectTestEngine(t)
 	eng.directMinChunkSize = 64 << 10
+	// Count open requests on the client: the server notices a closed
+	// connection only on its next write, a moment after Pause returns.
+	requests := countDirectRequests(eng)
 	h, err := eng.AddDirect(ts.URL+"/image.iso", "image.iso", sumHex(payload))
 	if err != nil {
 		t.Fatal(err)
@@ -480,8 +480,8 @@ func TestParallelPauseWaitsAndResumeCompletes(t *testing.T) {
 	if err := eng.Pause(h); err != nil {
 		t.Fatal(err)
 	}
-	if active.Load() != 0 {
-		t.Fatalf("Pause returned with %d active requests", active.Load())
+	if n := requests.open.Load(); n != 0 {
+		t.Fatalf("Pause returned with %d open requests", n)
 	}
 	if err := eng.Resume(h); err != nil {
 		t.Fatal(err)
@@ -542,14 +542,16 @@ func TestDirectManifestRejectsStaleAndOverlappingRanges(t *testing.T) {
 	if err := saveDirectManifest(path, m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadDirectManifest(path, m.URL, m.Total, m.Validator); err == nil {
+	id := directIdentity{key: m.URL, url: m.URL, total: m.Total, validator: m.Validator}
+	if _, err := loadDirectManifest(path, id); err == nil {
 		t.Fatal("overlapping manifest was accepted")
 	}
 	m.Completed = []byteRange{{Start: 0, End: 49}}
 	if err := saveDirectManifest(path, m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadDirectManifest(path, m.URL, m.Total+1, m.Validator); err == nil {
+	id.total++
+	if _, err := loadDirectManifest(path, id); err == nil {
 		t.Fatal("stale manifest total was accepted")
 	}
 }
@@ -563,14 +565,23 @@ func TestDirectRangeHelpersRejectInvalidCoverage(t *testing.T) {
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("missing ranges = %+v, want %+v", got, want)
 	}
-	scheduler := newDirectRangeScheduler(100, []byteRange{{Start: 40, End: 59}})
-	first, ok := scheduler.claim(10)
-	if !ok || first != (byteRange{Start: 20, End: 39}) {
-		t.Fatalf("first adaptive claim = %+v, %v", first, ok)
+	// The segment scheduler replaced the halving scheduler (J7.4): first
+	// claims are capped at total/connections, so the opening split is even.
+	run := newSegmentRun(100, 10, []byteRange{{Start: 40, End: 59}}, 4)
+	now := time.Now()
+	var claims []byteRange
+	for range 4 {
+		r, wait, ok := run.claim(run.addWorker(), now)
+		if !ok || wait != 0 {
+			t.Fatalf("claim = %+v, %v, %v", r, wait, ok)
+		}
+		claims = append(claims, r)
 	}
-	second, ok := scheduler.claim(10)
-	if !ok || second != (byteRange{Start: 80, End: 99}) {
-		t.Fatalf("second adaptive claim = %+v, %v", second, ok)
+	want = []byteRange{{Start: 0, End: 24}, {Start: 60, End: 84}, {Start: 25, End: 39}, {Start: 85, End: 99}}
+	for i := range want {
+		if claims[i] != want[i] {
+			t.Fatalf("claims = %+v, want %+v", claims, want)
+		}
 	}
 }
 

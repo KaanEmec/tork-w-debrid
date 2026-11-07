@@ -84,6 +84,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "intro":
+			if err := runIntroCommand(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "tork:", err)
+				os.Exit(1)
+			}
+			return
 		case "-h", "--help", "help":
 			printHelp()
 			return
@@ -145,6 +151,7 @@ Usage:
   torkwd debrid login|status|logout [-y]|on|off
   torkwd status | stop
   torkwd update [--check] [--force]
+  torkwd intro [--no-motion]
   torkwd --version
 
 Commands:
@@ -152,6 +159,7 @@ Commands:
   debrid      link (login), check (status) or unlink (logout) a
               Real-Debrid account; on/off switches downloads through it
   doctor      read-only config, disk, state, and provider diagnostic
+  intro       play the Tork-w-Debrid intro again (any key stops it)
   proxy       configure or inspect strict SOCKS5 routing
   status      show the background transfer session (macOS/Linux)
   stop        save and stop the background transfer session
@@ -167,6 +175,7 @@ Flags:
                            (applies to new downloads this session only)
       --foreground         stop transfers when the UI quits
       --config-dir DIR     use a separate config and transfer session
+      --no-motion          turn animations off for this run
 
 The interactive UI stores config and state under ~/.tork and downloads into
 your OS Downloads folder by default. On macOS/Linux, closing the UI leaves
@@ -577,6 +586,7 @@ func run() error {
 	torrentURL := fs.String("torrent-url", "", "explicit .torrent download URL (allows non-.torrent paths)")
 	foreground := fs.Bool("foreground", false, "stop transfers when the UI quits")
 	configDir := fs.String("config-dir", "", "use a separate config directory and background session")
+	noMotion := fs.Bool("no-motion", false, "turn animations off for this run")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
 	}
@@ -603,7 +613,7 @@ func run() error {
 		if *dlDir != "" {
 			downloadOverride = cfg.DownloadDir
 		}
-		return runSessionUI(cfg, openTarget, downloadOverride, *evil)
+		return runSessionUI(cfg, openTarget, downloadOverride, *evil, *noMotion)
 	}
 
 	eng, err := engine.New(cfg)
@@ -637,6 +647,10 @@ func run() error {
 	defer stopHealth()
 
 	app := tui.New(cfg, eng, agg, st, store)
+	if *noMotion {
+		app.SetNoMotion(true)
+	}
+	app.SetVersion(resolveVersion()) // the intro plays once per version (J8.8)
 	if openTarget != nil {
 		if err := app.OpenTarget(*openTarget); err != nil {
 			return err

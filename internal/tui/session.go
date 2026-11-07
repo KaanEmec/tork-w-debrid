@@ -13,6 +13,7 @@ import (
 // and file choices. An explicit CLI target still uses the normal preview flow.
 func (a *App) AttachSession(target *intake.Target) (tea.Cmd, error) {
 	a.background = true
+	a.motion.detached = false // ensureFrame re-arms the clock on the next update
 	if target != nil {
 		if a.navigationLocked() {
 			return nil, fmt.Errorf("finish or cancel the open dialog before opening another torrent")
@@ -24,16 +25,19 @@ func (a *App) AttachSession(target *intake.Target) (tea.Cmd, error) {
 		a.startup = nil
 		return cmd, nil
 	}
+	intro := a.maybeStartIntro() // once after each update (J8.8)
 	if a.screen == screenSearch && !a.search.menuFocused {
-		return a.search.input.Focus(), nil
+		return tea.Batch(intro, a.search.input.Focus()), nil
 	}
 	if a.screen == screenSources {
-		return a.checkEnabledSources(false), nil
+		return tea.Batch(intro, a.checkEnabledSources(false)), nil
 	}
-	return nil, nil
+	return intro, nil
 }
 
 func (a *App) DetachSession() tea.Cmd {
+	// Nobody is watching: the frame clock stops after the frame in flight.
+	a.motion.detached = true
 	a.search.input.Blur()
 	// A pending clipboard lookup belongs to the terminal that requested it.
 	// Approved downloads may continue, but a late copy must not reach a new UI.

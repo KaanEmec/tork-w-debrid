@@ -79,7 +79,7 @@ func TestPreviewCheckboxDoesNotDuplicateISOIcon(t *testing.T) {
 	if got := p.checkbox(n); !strings.Contains(got, "[✓]") {
 		t.Fatalf("selected checkbox = %q, want an explicit check mark", got)
 	}
-	if got := p.renderNode(n, newPreviewLayout(100), 1); strings.Count(got, "◉") != 1 {
+	if got := p.renderNode(n, newPreviewLayout(100), false); strings.Count(got, "◉") != 1 {
 		t.Fatalf("ISO row = %q, want exactly one disc icon", got)
 	}
 }

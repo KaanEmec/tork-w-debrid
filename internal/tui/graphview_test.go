@@ -143,8 +143,8 @@ func TestNoisyLeafDimmed(t *testing.T) {
 	}}
 	g := &group{rowIdx: []int{0}}
 	got := r.graphLeaf(g, 0, 100, false)
-	if !strings.Contains(got, "38;5;240") {
-		t.Fatalf("noisy leaf not dimmed with faint color: %q", got)
+	if !strings.Contains(got, "38;5;246") {
+		t.Fatalf("noisy leaf not dimmed with the muted color: %q", got)
 	}
 }
 

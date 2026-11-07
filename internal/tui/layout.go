@@ -43,11 +43,15 @@ func (a *App) contentWidth() int {
 	return w
 }
 
-// bodyHeight reserves navigation and footer rows. Home only has a footer.
+// bodyHeight reserves the header (line + rule) and footer (rule + line). Home
+// only has a footer. A toast takes one more line just above the footer.
 func (a *App) bodyHeight() int {
 	h := a.termHeight() - 4
-	if a.screen == screenSearch {
+	if a.screen == screenSearch && !a.showHelp {
 		h += 2 // home already has its own wordmark; no duplicate header
+	}
+	if a.toast.text != "" {
+		h--
 	}
 	if h < 1 {
 		h = 1
@@ -115,19 +119,63 @@ func fitBlockWidth(s string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// headerBar shows search context and live transfers without a shortcut toolbar.
+// crumbSep joins header breadcrumb parts: "sintel › preview".
+const crumbSep = " › "
+
+// headerBar is the one header line and its rule: "tork-w-debrid  ›  <context>"
+// on the left, one muted fact on the right. Earlier breadcrumb parts are
+// muted and the last one is fg. While a search streams on Results, the copper
+// sweep runs along the rule.
 func (a *App) headerBar(context string) string {
 	w := a.contentWidth()
-	left := styleDim.Render(context)
-	right := a.activityChip()
-	if right == "" || w < 10 {
-		return padRight(truncate(left, w), w) + "\n" + rule(w)
+	parts := strings.Split(context, crumbSep)
+	last := parts[len(parts)-1]
+	ruleLine := rule(w)
+	if a.screen == screenResults && a.results.searching && !a.showHelp {
+		ruleLine = copperRule(a.vframe(), w)
 	}
-	// Bound activity on cramped screens, keeping the current context visible.
-	right = truncate(right, max(1, w-7))
+	if w < 60 {
+		left := styleBrand.Render("tork") + "  " + styleOK.Render(glyphs.prompt) + " " + styleFg.Render(last)
+		return padRight(truncate(left, w), w) + "\n" + ruleLine
+	}
+	sep := styleDim.Render("  " + glyphs.sep + "  ")
+	left := brandMark() + sep
+	for _, p := range parts[:len(parts)-1] {
+		left += styleDim.Render(p) + sep
+	}
+	left += styleFg.Render(last)
+	right := a.headerFact()
+	if right == "" {
+		return padRight(truncate(left, w), w) + "\n" + ruleLine
+	}
+	// Bound the fact on cramped screens, keeping the current context visible.
+	right = truncate(right, max(1, w/2))
 	left = truncate(left, max(1, w-lipgloss.Width(right)-2))
 	gap := max(2, w-lipgloss.Width(left)-lipgloss.Width(right))
-	return left + strings.Repeat(" ", gap) + right + "\n" + rule(w)
+	return left + strings.Repeat(" ", gap) + right + "\n" + ruleLine
+}
+
+// brandMark is the app's name in the header: "tork" bold accent, "-w-"
+// muted, "debrid" bold lavender.
+func brandMark() string {
+	return styleBrand.Render("tork") + styleDim.Render("-w-") + styleRouteBold.Render("debrid")
+}
+
+// headerFact is the one fact on the right of each screen's header.
+func (a *App) headerFact() string {
+	switch a.screen {
+	case screenResults:
+		return a.resultsFact()
+	case screenDownloads:
+		return a.downloadsFact()
+	case screenPreview:
+		return a.previewFact()
+	case screenSources:
+		return a.sourcesFact()
+	case screenSettings:
+		return a.settingsFact()
+	}
+	return a.activityChip()
 }
 
 // footerLine renders one status row: help text (an error, when present, takes
@@ -152,38 +200,42 @@ func (a *App) footerLine(width int, help, right string) string {
 	return truncate(line+strings.Repeat(" ", gap)+right, width)
 }
 
-// footerBar is a rule plus a help/status line (errors take over when present).
+// footerBar is a rule plus the key line (errors take over when present).
 func (a *App) footerBar(help string) string {
 	w := a.contentWidth()
 	return rule(w) + "\n" + a.footerLine(w, help, a.footerTail())
 }
 
+// footerTail is the right side of the footer: "☁ RD" in lavender when
+// Real-Debrid handles downloads, then the proxy badge. Home also shows the
+// live transfer chip, since it has no header.
 func (a *App) footerTail() string {
-	tail := a.proxyStatusTail()
+	var parts []string
+	if a.debridRouting() {
+		parts = append(parts, routeMarker())
+	}
+	if proxy := a.proxyStatusTail(); proxy != "" {
+		parts = append(parts, proxy)
+	}
 	if a.screen == screenSearch {
 		if activity := a.activityChip(); activity != "" {
-			if tail != "" {
-				tail += " · "
-			}
-			tail += activity
+			parts = append(parts, activity)
 		}
 	}
-	return tail
+	return strings.Join(parts, styleFaint.Render("  ·  "))
 }
 
 // chrome composes a full screen: centered column, header on top, body filling
-// the middle, footer pinned to the bottom. Any pending toast is spliced into
-// the body's bottom-right corner here, so every screen confirms actions the
-// same way instead of each view remembering to do it.
+// the middle, an optional one-line toast, and the footer pinned to the bottom.
+// The toast line sits between body and footer, so it never covers content.
 func (a *App) chrome(context, body, help string) string {
 	body = fitBlockWidth(body, a.contentWidth())
 	body = padLines(body, a.bodyHeight())
 	if a.toast.text != "" {
-		body = overlayBottomRight(body, toastBox(a.toast), a.contentWidth())
-		body = fitBlockWidth(body, a.contentWidth())
+		body += "\n" + a.toastLine(a.contentWidth())
 	}
 	col := body + "\n" + a.footerBar(help)
-	if a.screen != screenSearch {
+	if a.screen != screenSearch || a.showHelp {
 		col = a.headerBar(context) + "\n" + col
 	}
 	return a.center(col)
@@ -214,14 +266,14 @@ func newResultsLayout(width int) resultsLayout {
 	return l
 }
 
-// previewLayout: gutter checkbox icon name · risk · bar · size.
+// previewLayout: gutter checkbox name · risk · size.
 type previewLayout struct {
-	nameW, barW, sizeW int
+	nameW, sizeW int
 }
 
 func newPreviewLayout(width int) previewLayout {
-	l := previewLayout{barW: 8, sizeW: 10}
-	l.nameW = flexW(width, 16, 3+2+2+2+l.barW+1+l.sizeW)
+	l := previewLayout{sizeW: 10}
+	l.nameW = flexW(width, 16, 1+3+1+1+1+1+l.sizeW)
 	return l
 }
 

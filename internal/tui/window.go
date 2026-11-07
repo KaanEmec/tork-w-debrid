@@ -53,11 +53,8 @@ func renderWindow(w *listWindow, total, visible, width int, render func(i int, s
 	for i := start; i < end; i++ {
 		content := truncate(render(i, i == w.cursor), rowWidth)
 		if i == w.cursor {
-			// Nested foreground styles reset the terminal background too. Give the
-			// selected row one continuous style so its highlight survives cells
-			// rendered with their own colors.
-			b.WriteString(styleSelBar.Background(colSel).Render("▍"))
-			b.WriteString(styleSelected.Render(padRight(ansi.Strip(content), rowWidth)))
+			b.WriteString(styleSelBar.Background(colRaised).Render(glyphs.cursor))
+			b.WriteString(selectedRow(content, rowWidth))
 		} else {
 			b.WriteString(" " + padRight(content, rowWidth))
 		}
@@ -67,4 +64,29 @@ func renderWindow(w *listWindow, total, visible, width int, render func(i int, s
 		b.WriteString("\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// selectedRow fills a row with the raised selection background and makes its
+// plain text bold fg, while cells rendered with their own colour (a ★, amber
+// seeds, a rail) keep it. Nested styles reset the background at every span
+// end, so the selection style is re-applied after each reset.
+func selectedRow(content string, width int) string {
+	body := padRight(content, width)
+	prefix := selectionPrefix()
+	if prefix == "" {
+		return styleSelected.Render(ansi.Strip(body))
+	}
+	return prefix + strings.ReplaceAll(body, ansiReset, ansiReset+prefix) + ansiReset
+}
+
+const ansiReset = "\x1b[0m"
+
+// selectionPrefix is the escape sequence that opens styleSelected in the
+// current colour profile ("" when the profile emits none).
+func selectionPrefix() string {
+	s := styleSelected.Render("x")
+	if i := strings.Index(s, "x"); i > 0 {
+		return s[:i]
+	}
+	return ""
 }

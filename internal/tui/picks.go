@@ -7,6 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/kaanemec/tork-w-debrid/internal/aggregator"
+	"github.com/kaanemec/tork-w-debrid/internal/provider"
 	"github.com/kaanemec/tork-w-debrid/internal/rank"
 )
 
@@ -20,9 +23,11 @@ func resolutionName(r rank.Resolution) string {
 }
 
 type pickItem struct {
-	row        int
+	row        int // index into rows; -1 group header, -2 "+ N more" toggle
 	resolution rank.Resolution
 	label, key string
+	count      int  // releases in the group (headers)
+	best       bool // first, best-ranked release of its group
 }
 type pickPreferences struct {
 	resolutions uint8
@@ -150,7 +155,7 @@ func (r *resultsModel) rebuildPicks() {
 		}
 		sort.SliceStable(indices, func(i, j int) bool { return r.pickBetter(indices[i], indices[j]) })
 		if grouped {
-			r.picks = append(r.picks, pickItem{row: -1, resolution: res, label: fmt.Sprintf("%s · %s", resolutionName(res), plural(len(indices), "release"))})
+			r.picks = append(r.picks, pickItem{row: -1, resolution: res, label: resolutionLabel(res), count: len(indices)})
 		}
 		limit := len(indices)
 		if grouped && !r.pickExpanded[res] && limit > 3 {
@@ -165,13 +170,13 @@ func (r *resultsModel) rebuildPicks() {
 				}
 			}
 		}
-		for _, idx := range shown {
-			r.picks = append(r.picks, pickItem{row: idx, resolution: res, key: rowIdentity(r.rows[idx])})
+		for i, idx := range shown {
+			r.picks = append(r.picks, pickItem{row: idx, resolution: res, key: rowIdentity(r.rows[idx]), best: grouped && i == 0 && idx == indices[0]})
 		}
 		if grouped && len(indices) > 3 {
-			label := fmt.Sprintf("Show %d more releases", len(indices)-3)
+			label := fmt.Sprintf("+ %d more", len(indices)-3)
 			if r.pickExpanded[res] {
-				label = "Show fewer releases"
+				label = "- fewer"
 			}
 			r.picks = append(r.picks, pickItem{row: -2, resolution: res, label: label, key: "more:" + resolutionName(res)})
 		}
@@ -207,11 +212,22 @@ func (r *resultsModel) movePick(delta, height int) {
 		r.pickKey = r.picks[r.pickWin.cursor].key
 	}
 }
+
+// pickRows is the list window: the body minus the column header and, on a
+// tall enough body, the blank line and the detail line under the list.
 func (a *App) pickRows() int {
-	if a.bodyHeight() < 10 {
-		return max(1, a.bodyHeight()-3)
+	if a.bodyHeight() < 8 {
+		return max(1, a.bodyHeight()-1)
 	}
-	return max(1, a.bodyHeight()-7)
+	return max(1, a.bodyHeight()-3)
+}
+
+// resolutionLabel names a group header: "2160p", or "other".
+func resolutionLabel(r rank.Resolution) string {
+	if r == rank.ResUnknown {
+		return "other"
+	}
+	return r.String()
 }
 func (a *App) updatePickKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	r := &a.results
@@ -260,56 +276,19 @@ func (a *App) updatePickKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return a, nil
 }
+
+// viewPicks is the Results screen (design.md § Results): releases grouped by
+// resolution in four columns (release, details, size, seeds), ★ on each
+// group's best pick, and one detail line above the footer. While a search
+// streams, new rows fade in and the header runs the copper sweep.
 func (a *App) viewPicks() string {
 	r := &a.results
 	w := a.contentWidth()
-	summary := pickModes[r.pickPrefs.preference] + " · ranked by relevance"
-	if r.resolutionPicks() {
-		summary = pickModes[r.pickPrefs.preference] + " · top 3 per resolution"
+	ctx := r.query
+	if ctx == "" {
+		ctx = "results"
 	}
-	if r.pickPrefs.resolutions != 0 {
-		var names []string
-		for _, res := range resolutionOrder {
-			if r.pickPrefs.resolutions&(1<<uint(res)) != 0 {
-				names = append(names, resolutionName(res))
-			}
-		}
-		summary = strings.Join(names, " + ") + " · " + pickModes[r.pickPrefs.preference]
-	}
-	if pickSizes[r.pickPrefs.size] > 0 {
-		summary += " · ≤ " + humanBytes(pickSizes[r.pickPrefs.size])
-	}
-	if r.filterIn.Value() != "" {
-		summary += " · text: " + r.filterIn.Value()
-	}
-	if w < 76 {
-		summary = pickModes[r.pickPrefs.preference]
-		if r.pickPrefs.resolutions != 0 || r.pickPrefs.size != 0 || r.filterIn.Value() != "" {
-			summary += " · filtered"
-		}
-	}
-	if w < 40 {
-		summary = ""
-	}
-	count := fmt.Sprintf("%d results", len(r.rows))
-	if len(r.visible) != len(r.rows) {
-		count = fmt.Sprintf("%d/%d results", len(r.visible), len(r.rows))
-	}
-	if r.searching {
-		count += " · live"
-	}
-	left := styleBrand.Render(count)
-	if r.merged > 0 {
-		left += styleFaint.Render(fmt.Sprintf(" · %d merged", r.merged))
-	}
-	hidden := 0
-	for _, ev := range r.status {
-		hidden += ev.Hidden
-	}
-	if hidden > 0 {
-		left += styleFaint.Render(fmt.Sprintf(" · %d hidden", hidden))
-	}
-	body := splitResultLine(left, styleDim.Render(summary), w) + "\n" + a.resultSourceSummary(w) + "\n"
+	help := a.keyStrip(a.helpBudget(w))
 	if len(r.picks) == 0 {
 		label := "No matches with these filters. Press / to adjust or reset."
 		if r.searching {
@@ -320,55 +299,147 @@ func (a *App) viewPicks() string {
 		if r.query == "" {
 			label = "Type a search on home to get started."
 		}
-		return a.chrome("results · "+r.query, body+"\n"+styleDim.Render(label), a.keyStrip(a.helpBudget(w)))
+		return a.chrome(ctx, "\n"+styleDim.Render(label), help)
 	}
-	body += " " + releaseHeader(w-1) + "\n"
+	lay := newPickLayout(w - 1)
+	body := " " + lay.header() + "\n"
 	body += renderWindow(&r.pickWin, len(r.picks), a.pickRows(), w, func(i int, selected bool) string {
 		it := r.picks[i]
-		if it.row == -1 {
-			return styleTitle.Render(it.label)
+		switch it.row {
+		case -1:
+			return " " + styleBrand.Render(it.label) + styleDim.Render(fmt.Sprintf("  %d", it.count))
+		case -2:
+			return "  " + styleDim.Render(it.label)
 		}
-		if it.row == -2 {
-			return styleDim.Render("  " + it.label)
-		}
-		return renderReleaseRow(r.rows[it.row], w-1)
-	})
-	if a.bodyHeight() < 10 {
-		return a.chrome("results · "+r.query, body, a.keyStrip(a.helpBudget(w)))
-	}
-	it := r.picks[r.pickWin.cursor]
-	if it.row >= 0 {
 		row := r.rows[it.row]
-		reason := "ranked by title match, source quality and reported swarm"
-		if row.res.Seeders <= 0 {
-			reason = "no seeders reported · availability uncertain"
-		} else if row.tags.Source == rank.SrcCam {
-			reason = "CAM source · lower image quality"
-		} else if r.pickPrefs.preference == 1 {
-			reason = "smaller known files first, after title match and availability"
-		} else if r.pickPrefs.preference == 2 {
-			reason = "higher source quality first, after title match and availability"
-		}
-		q, qYear := rank.SplitTitle(r.query)
-		title, titleYear := rank.SplitTitle(row.res.Title)
-		if q != "" && q != title {
-			reason = "partial title match · " + reason
-		}
-		if qYear != "" && qYear != titleYear {
-			reason = "year differs or unlisted · " + reason
-		}
-		label := "Selected · " + sourceTag(row.res, true)
-		body += "\n" + detailRule(label, w) + "\n" + styleFg.Render(row.res.Title) + "\n"
-		facts := releaseQuality(row)
-		if row.res.SizeBytes > 0 {
-			facts += " · " + humanBytes(row.res.SizeBytes)
-		}
-		facts += fmt.Sprintf(" · %d seeds", max(0, row.res.Seeders))
-		body += styleDim.Render(facts) + "\n" + styleDim.Render(reason)
-	} else {
-		body += "\n" + detailRule("More releases", w) + "\n" + styleDim.Render("enter "+strings.ToLower(it.label))
+		return lay.render(row, selected, it.best, a.age(row.born))
+	})
+	if a.bodyHeight() >= 8 {
+		body += "\n\n" + a.pickDetailLine(w)
 	}
-	return a.chrome("results · "+r.query, body, a.keyStrip(a.helpBudget(w)))
+	return a.chrome(ctx, body, help)
+}
+
+// pickDetailLine is the line above the footer: source, merge count, trackers
+// and the checks in muted, with "☁ via Real-Debrid" on the right when
+// Real-Debrid handles downloads.
+func (a *App) pickDetailLine(w int) string {
+	r := &a.results
+	right := ""
+	if a.debridRouting() {
+		right = viaRoute()
+	}
+	left := ""
+	if it := r.picks[r.pickWin.cursor]; it.row >= 0 {
+		row := r.rows[it.row]
+		parts := []string{sourceTag(row.res, true)}
+		if n := len(row.res.Trackers()); n > 0 {
+			parts = append(parts, plural(n, "tracker"))
+		}
+		check := "looks clean"
+		if reasons := rank.NoiseReasons(r.query, row.res.Title, row.tags, row.res.Seeders); len(reasons) > 0 {
+			check = "check: " + strings.Join(reasons, ", ")
+		}
+		parts = append(parts, check, row.res.Title) // the untouched provider title
+		left = styleDim.Render(strings.Join(parts, " · "))
+	} else if it.row == -2 {
+		left = styleDim.Render("enter " + strings.TrimPrefix(it.label, "+ ") + " releases")
+		if r.pickExpanded[it.resolution] {
+			left = styleDim.Render("enter shows fewer releases")
+		}
+	}
+	return splitResultLine(" "+left, right, w)
+}
+
+// pickLayout is the Results grid: release (34), details (24, muted), size
+// (10, right), seeds (8, right) and the ★ cell. Details drop under 76 columns.
+type pickLayout struct{ title, details, size, seeds int }
+
+const pickStarW = 3
+
+func newPickLayout(width int) pickLayout {
+	l := pickLayout{size: 10, seeds: 8}
+	if width >= 76 {
+		l.details = 24
+	}
+	l.title = max(8, min(34, width-1-l.details-l.size-l.seeds-pickStarW))
+	if width < 1+l.title+l.size+l.seeds+pickStarW {
+		l.seeds = 0
+	}
+	return l
+}
+
+func (l pickLayout) header() string {
+	line := " " + strings.Repeat(" ", l.title+l.details) + padLeft("size", l.size)
+	if l.seeds > 0 {
+		line += padLeft("seeds", l.seeds)
+	}
+	return styleDim.Render(line)
+}
+
+// render draws one release row. Seeds are amber under 5 and a muted "—" at
+// zero (the whole row goes muted); the best pick of a group gets an amber ★.
+func (l pickLayout) render(row scoredRow, selected, best bool, age int) string {
+	titleStyle := styleText
+	switch {
+	case selected:
+		titleStyle = styleFg.Bold(true)
+	case row.res.Seeders <= 0:
+		titleStyle = styleDim
+	}
+	titleStyle = fadeStyle(age, titleStyle)
+	size := "?"
+	if row.res.SizeBytes > 0 {
+		size = humanBytes(row.res.SizeBytes)
+	}
+	line := " " + titleStyle.Render(padRight(truncate(readableReleaseTitle(row.res.Title), l.title), l.title))
+	if l.details > 0 {
+		details := releaseQuality(row)
+		if details == "source unknown" {
+			details = "—"
+		}
+		line += fadeStyle(age, styleDim).Render(padRight(truncate(details, l.details-2), l.details))
+	}
+	line += fadeStyle(age, styleText).Render(padLeft(truncate(size, l.size), l.size))
+	if l.seeds > 0 {
+		seeds, st := fmt.Sprint(row.res.Seeders), styleText
+		switch {
+		case row.res.Seeders <= 0:
+			seeds, st = "—", styleDim
+		case row.res.Seeders < 5:
+			st = styleWarn
+		}
+		line += fadeStyle(age, st).Render(padLeft(seeds, l.seeds))
+	}
+	if best {
+		line += styleBest.Render("  " + glyphs.star)
+	}
+	return line
+}
+
+// resultsFact is the Results header's right side: a spinner and
+// "searching · 5 of 7 sources" while the search streams, then
+// "128 results · 7 sources".
+func (a *App) resultsFact() string {
+	r := &a.results
+	if r.query == "" || a.agg == nil {
+		return ""
+	}
+	total := len(a.agg.Providers())
+	if r.searching {
+		answered := 0
+		for _, p := range a.agg.Providers() {
+			if ev, ok := r.status[provider.DisplayName(p)]; ok && ev.State != aggregator.StateSearching {
+				answered++
+			}
+		}
+		return spinnerGlyph(a.vframe()) + styleDim.Render(fmt.Sprintf(" searching · %d of %d sources", answered, total))
+	}
+	count := fmt.Sprintf("%d results", len(r.rows))
+	if len(r.visible) != len(r.rows) {
+		count = fmt.Sprintf("%d/%d results", len(r.visible), len(r.rows))
+	}
+	return styleDim.Render(count + " · " + plural(total, "source"))
 }
 
 func detailRule(label string, width int) string {

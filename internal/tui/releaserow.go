@@ -101,7 +101,7 @@ func (l releaseLayout) render(title, quality, size, seeds string, header bool) s
 		parts = append(parts, padLeft(truncate(seeds, l.seeds), l.seeds))
 	}
 	if header {
-		return styleFaint.Render(strings.Join(parts, "  "))
+		return styleDim.Render(strings.Join(parts, "  "))
 	}
 	// Keep titles bright while the supporting columns recede.
 	line := styleFg.Render(parts[0])
