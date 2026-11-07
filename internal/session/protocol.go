@@ -34,6 +34,9 @@ type Launch struct {
 	// --no-motion, NO_COLOR, TERM=dumb or stdout not a terminal. The worker has
 	// no terminal of its own, so it cannot tell.
 	NoMotion bool
+	// ASCII is the attaching terminal's answer to "does it have Unicode
+	// block and box characters?" (false means it does).
+	ASCII bool
 }
 
 type request struct {

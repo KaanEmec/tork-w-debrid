@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/kaanemec/tork-w-debrid/internal/engine"
@@ -39,7 +40,19 @@ type previewModel struct {
 	selectedCount int
 	warningCount  int
 	dirCount      int
-	viaDebrid     bool // the file list came from Real-Debrid, no swarm contacted (J4.1, D3)
+
+	// Debrid mode (J4.1): the preview goes through Real-Debrid and never
+	// contacts the swarm (D3). See preview_debrid.go.
+	debrid       bool
+	src          previewSource  // the input, for `t` (continue as a normal torrent)
+	gen          uint64         // matches the add result to this preview
+	list         fileListSource // where files came from
+	remoteIDs    map[int]int    // FileInfo.Index → Real-Debrid file ID (list from Real-Debrid)
+	added        bool           // Real-Debrid accepted the torrent
+	started      bool           // StartDebrid ran
+	startPending bool           // enter was pressed; waiting on the add or the file list
+	debridErr    string         // why Real-Debrid can't take it; offers `t`
+	notice       string         // "file list updated from Real-Debrid…"
 }
 
 func newPreviewModel(h metainfo.Hash, magnet, name string, from screen, owned bool) previewModel {
@@ -51,6 +64,10 @@ func newPreviewModel(h metainfo.Hash, magnet, name string, from screen, owned bo
 
 // refresh polls the engine for file metadata once it arrives.
 func (p *previewModel) refresh(eng *engine.Engine) {
+	if p.debrid {
+		p.refreshDebrid(eng)
+		return
+	}
 	if p.saveDir == "" {
 		if snap, ok := eng.Snapshot(p.hash); ok {
 			p.saveDir = snap.DownloadDir
@@ -60,19 +77,26 @@ func (p *previewModel) refresh(eng *engine.Engine) {
 		return
 	}
 	if files, ok := eng.Files(p.hash); ok {
-		p.files = files
-		p.tree = buildFileTree(files)
-		p.excluded = junkFiles(files)
-		p.autoSkipped = len(p.excluded)
-
-		if inferred := p.inferredName(); inferred != "" && strings.HasPrefix(p.name, "magnet · ") {
-			p.name = inferred
-		}
-		p.tree = buildPreviewTree(files, p.excluded)
-		p.rebuildRows()
-		p.rebuildStats()
-		p.ready = true
+		p.setFiles(files, listFromSwarm)
 	}
+}
+
+// setFiles fills the preview from a file list, whatever its source: extras
+// start unticked and grouped, and a bare magnet takes the torrent's name.
+func (p *previewModel) setFiles(files []engine.FileInfo, list fileListSource) {
+	p.files = files
+	p.list = list
+	p.tree = buildFileTree(files)
+	p.excluded = junkFiles(files)
+	p.autoSkipped = len(p.excluded)
+
+	if inferred := p.inferredName(); inferred != "" && strings.HasPrefix(p.name, "magnet · ") {
+		p.name = inferred
+	}
+	p.tree = buildPreviewTree(files, p.excluded)
+	p.rebuildRows()
+	p.rebuildStats()
+	p.ready = true
 }
 
 func (p *previewModel) rebuildRows() {
@@ -144,11 +168,22 @@ func (a *App) updatePreview(msg tea.Msg) (tea.Model, tea.Cmd) {
 	p := &a.preview
 	switch key.String() {
 	case "esc":
-		if p.owned {
+		if p.debrid {
+			a.cancelDebridPreview() // nothing is left on Real-Debrid
+		} else if p.owned {
 			a.eng.Remove(p.hash, false) // discard only metadata-only torrents we added
 		}
 		a.screen = p.from
 		return a, nil
+	}
+	if p.debrid && p.debridErr != "" {
+		if key.String() == "t" {
+			return a, a.fallBackToTorrent()
+		}
+		return a, nil
+	}
+	if p.startPending {
+		return a, nil // the start finishes from the tick
 	}
 	if !p.ready {
 		// Metadata can take a while for a bare hash because a peer must supply
@@ -188,9 +223,11 @@ func (a *App) updatePreview(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case " ":
 		if n := p.currentNode(); n != nil {
 			p.toggleNode(n)
+			p.notice = ""
 		}
 	case "a": // include all
 		p.excluded = map[int]bool{}
+		p.notice = ""
 		p.recomputeSelection()
 	case "n": // exclude all
 		for _, f := range p.files {
@@ -345,6 +382,9 @@ func magnetHashPrefix(magnet string) string {
 // startPreviewDownload commits the file selection and jumps to downloads.
 func (a *App) startPreviewDownload() tea.Cmd {
 	p := &a.preview
+	if p.debrid {
+		return a.startDebridPreviewDownload()
+	}
 	excluded := p.excludedSlice()
 	a.eng.StartDownload(p.hash, excluded)
 	entry := state.Entry{
@@ -361,17 +401,21 @@ func (a *App) startPreviewDownload() tea.Cmd {
 	a.st.Upsert(entry)
 	a.downloads.snaps = a.eng.Snapshots()
 	a.refreshDownloadItems()
-	// Hand the user back to whatever they were browsing, so queuing several
-	// torrents out of one search costs one keypress each. A preview opened from
-	// home (or from the command line) has no list to return to, so the downloads
-	// screen is the only useful destination there.
-	if p.from == screenSearch {
+	a.leavePreview()
+	return tea.Batch(a.saveState(), a.ensureTick(), a.showToast(queuedToast(p.name), toastOK, toastQuick))
+}
+
+// leavePreview hands the user back to whatever they were browsing, so
+// queuing several torrents out of one search costs one keypress each. A
+// preview opened from home (or from the command line) has no list to return
+// to, so the downloads screen is the only useful destination there.
+func (a *App) leavePreview() {
+	if a.preview.from == screenSearch {
 		a.downloadsFrom = screenSearch
 		a.screen = screenDownloads
 	} else {
-		a.screen = p.from
+		a.screen = a.preview.from
 	}
-	return tea.Batch(a.saveState(), a.ensureTick(), a.showToast(queuedToast(p.name), toastOK, toastQuick))
 }
 
 // previewContext is the preview header's breadcrumb: "<query> › preview".
@@ -395,6 +439,12 @@ func (a *App) viewPreview() string {
 	p := &a.preview
 	width := a.contentWidth()
 
+	if p.debrid && p.debridErr != "" {
+		return a.viewDebridProblem()
+	}
+	if p.debrid && !p.ready {
+		return a.viewDebridWaiting()
+	}
 	if !p.ready {
 		waited := time.Since(p.startedAt).Round(time.Second)
 		status, hasStatus := a.eng.MetadataDiscovery(p.hash)
@@ -430,15 +480,18 @@ func (a *App) viewPreview() string {
 	if p.selectedBytes() == 0 {
 		selected = styleDim.Render("nothing selected · space chooses a file")
 	}
-	save := styleDim.Render("save to " + a.previewDestination())
+	route := ""
+	if p.debrid {
+		route = styleDim.Render("  ·  ") + styleRoute.Render("via Real-Debrid")
+	}
 	oneLine := width >= 60
 	if oneLine {
-		selected += styleDim.Render("  ·  ") + save
+		// A long folder gives way from the left, so "via Real-Debrid" always
+		// stays on the line.
+		room := width - 2 - lipgloss.Width(selected) - lipgloss.Width(route) - lipgloss.Width("  ·  save to ")
+		selected += styleDim.Render("  ·  save to " + truncatePathLeft(tildePath(a.previewDestination()), room))
 	}
-	if a.debridRouting() {
-		selected += styleDim.Render("  ·  ") + styleRoute.Render("via Real-Debrid")
-	}
-	b.WriteString("  " + selected + "\n")
+	b.WriteString("  " + selected + route + "\n")
 	info := ""
 	if !oneLine {
 		info = "save to " + a.previewDestination()
@@ -461,10 +514,22 @@ func (a *App) viewPreview() string {
 	b.WriteString(renderWindow(&p.win, len(p.rows), a.previewRows(), width, func(i int, selected bool) string {
 		return p.renderNode(p.rows[i], lay, selected)
 	}))
-	if p.viaDebrid && a.bodyHeight() >= 8 {
-		b.WriteString("\n\n  " + styleDim.Render("file list from Real-Debrid · no swarm contacted"))
+	if p.debrid && a.bodyHeight() >= 8 {
+		b.WriteString("\n\n  " + a.debridFootnote())
 	}
 	return a.chrome(a.previewContext(), b.String(), a.keyStrip(a.helpBudget(width)))
+}
+
+// truncatePathLeft keeps a path's end, the part that tells folders apart,
+// cutting from the left with an ellipsis.
+func truncatePathLeft(path string, w int) string {
+	if lipgloss.Width(path) <= w {
+		return path
+	}
+	if w <= 1 {
+		return truncate(path, max(w, 0))
+	}
+	return "…" + ansi.TruncateLeft(path, lipgloss.Width(path)-w+1, "")
 }
 
 func (p *previewModel) flaggedCount() int {
@@ -549,7 +614,7 @@ func (p *previewModel) renderNode(n *fileNode, lay previewLayout, selected bool)
 // tree, and the provenance line below it.
 func (a *App) previewRows() int {
 	rows := a.bodyHeight() - 3
-	if a.preview.viaDebrid && a.bodyHeight() >= 8 {
+	if a.preview.debrid && a.bodyHeight() >= 8 {
 		rows -= 2
 	}
 	return max(1, rows)

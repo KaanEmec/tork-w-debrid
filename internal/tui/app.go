@@ -66,6 +66,7 @@ type App struct {
 	clipboardOutput io.Writer // shared with the foreground renderer
 	motion          motionState
 	debrid          debridStatus
+	previewSeq      uint64     // generation of debrid previews; drops late results (J4.1)
 	intro           introState // the demoscene intro (J8.8), drawn over the current screen
 }
 
@@ -257,20 +258,28 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshDownloadItems()
 		proxyCmd := a.startProxyCheck(time.Time(msg))
 		pathCmd := a.startDownloadPathCheck(false)
+		var startCmd tea.Cmd
 		if a.screen == screenPreview {
 			a.preview.refresh(a.eng)
+			startCmd = a.resumePendingDebridStart()
 		}
 		if a.tickShouldContinue() {
-			return a, tea.Batch(saveCmd, proxyCmd, pathCmd, tickCmd(a.tickInterval()))
+			return a, tea.Batch(saveCmd, proxyCmd, pathCmd, startCmd, tickCmd(a.tickInterval()))
 		}
 		a.downloads.ticking = false
-		return a, tea.Batch(saveCmd, proxyCmd, pathCmd)
+		return a, tea.Batch(saveCmd, proxyCmd, pathCmd, startCmd)
 
 	case torrentAddedMsg:
 		return a, a.onTorrentAdded(msg)
 
 	case previewReadyMsg:
 		return a, a.onPreviewReady(msg)
+
+	case debridPreviewOpenMsg:
+		return a, a.onDebridPreviewOpen(msg)
+
+	case debridPreviewAddedMsg:
+		return a, a.onDebridPreviewAdded(msg)
 
 	case resultMsg, resultsClosedMsg, statusMsg, statusClosedMsg, magnetResolvedMsg:
 		// Search streams keep progressing even while the user checks downloads or
@@ -351,6 +360,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) View() string {
+	view := a.viewScreen()
+	if glyphs.ascii {
+		return asciiFold(view)
+	}
+	return view
+}
+
+func (a *App) viewScreen() string {
 	if a.intro.active {
 		return a.viewIntro()
 	}

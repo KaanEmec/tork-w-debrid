@@ -1,0 +1,24 @@
+    tork-w-debrid  >  keys                                        v 2  0 B/s
+    ------------------------------------------------------------------------
+    home
+
+      enter           search
+      ^v              choose
+      tab             menu
+      tab / shift+tab next / previous control
+      paste           a magnet, infohash, .torrent path or URL
+      esc             focus search, then clear the field
+
+    navigation
+
+      F1 / F2         home / latest results
+      F3 / F4         downloads / sources
+      F5              settings
+      tab / shift+tab home: focus controls; elsewhere: downloads / back
+      esc             back or cancel current step
+      ^d              downloads
+      H               health history
+      ?               this card
+      ^c              quit
+    ------------------------------------------------------------------------
+    esc close                                              RD  -  v 2  0 B/s

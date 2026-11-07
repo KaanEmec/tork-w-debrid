@@ -98,7 +98,7 @@ func runSessionUI(cfg *config.Config, target *intake.Target, downloadOverride st
 	client, err := session.Attach(cfg.Dir(), session.Launch{
 		Target: target, DownloadDir: downloadOverride, Evil: evil, Build: sessionBuild(),
 		Width: w, Height: h, ColorProfile: int(lipgloss.ColorProfile()), Dark: lipgloss.HasDarkBackground(),
-		NoMotion: noMotion || !tui.MotionAllowed(),
+		NoMotion: noMotion || !tui.MotionAllowed(), ASCII: tui.DetectASCII(),
 	})
 	if err != nil {
 		return err
@@ -172,6 +172,7 @@ func runSessionDaemon(args []string) error {
 			}
 			// The worker has no terminal; motion follows the attaching one.
 			app.SetNoMotion(launch.NoMotion)
+			tui.SetASCIIGlyphs(launch.ASCII)
 			return app.AttachSession(launch.Target)
 		},
 		Detach:     app.DetachSession,

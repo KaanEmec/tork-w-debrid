@@ -151,7 +151,7 @@ func previewGoldenApp() *App {
 		{Index: 3, Path: "Sintel (2010) 1080p/Subs/Español.srt", Length: 49 << 10},
 	}
 	excluded := map[int]bool{2: true, 3: true}
-	p := previewModel{name: "Sintel (2010) 1080p BluRay x264", ready: true, files: files, excluded: excluded, tree: buildPreviewTree(files, excluded), from: screenResults, viaDebrid: true}
+	p := previewModel{name: "Sintel (2010) 1080p BluRay x264", ready: true, files: files, excluded: excluded, tree: buildPreviewTree(files, excluded), from: screenResults, debrid: true, list: listFromRemote}
 	p.rebuildRows()
 	p.rebuildStats()
 	a := &App{screen: screenPreview, width: 120, height: 36, cfg: &config.Config{DownloadDir: "~/Downloads/tork"}, preview: p, results: newTestResults()}
