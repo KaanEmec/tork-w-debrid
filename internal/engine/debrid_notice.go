@@ -22,6 +22,13 @@ import (
 // ready window, or for its first local bytes after it.
 const NoteDebridStarting = "starting"
 
+// NoteDebridUnreachable is Snapshot.Note while the poller cannot reach the
+// service (a network error or a busy answer) and keeps retrying: the cloud
+// progress on the row is the last one seen.
+func NoteDebridUnreachable(short string) string {
+	return "☁ can't reach " + short + " · retrying"
+}
+
 // DebridStarting reports whether a snapshot is a debrid item in its ready
 // window (or about to receive its first local bytes): the row reads
 // "starting", with a spinner and an empty rail.

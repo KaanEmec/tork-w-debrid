@@ -82,6 +82,9 @@ type RemoteInfo struct {
 	Reason string
 	// Progress is 0–100 for the cloud download.
 	Progress float64
+	// Packing: the download is done and the service is packing the files
+	// into an archive or moving them to its hosts (Status is Downloading).
+	Packing bool
 	// Bytes is the size of the selected files; OriginalBytes the whole torrent.
 	Bytes         int64
 	OriginalBytes int64

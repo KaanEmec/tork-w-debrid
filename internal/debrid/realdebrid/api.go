@@ -95,7 +95,8 @@ func (t torrentInfo) remote() debrid.RemoteInfo {
 	info := debrid.RemoteInfo{
 		ID: t.ID, Name: name, Hash: strings.ToLower(t.Hash),
 		Status: status, RawStatus: t.Status, Reason: reason,
-		Progress: t.Progress, Bytes: t.Bytes, OriginalBytes: t.OriginalBytes,
+		Progress: t.Progress, Packing: t.Status == "compressing" || t.Status == "uploading",
+		Bytes: t.Bytes, OriginalBytes: t.OriginalBytes,
 		SpeedBps: t.Speed, Seeders: t.Seeders, Links: t.Links,
 		Added: parseTime(t.Added), Ended: parseTime(t.Ended),
 	}

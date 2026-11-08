@@ -204,6 +204,20 @@ func TestMapStatusCoversRealDebridWords(t *testing.T) {
 		if (status == debrid.Failed) != (reason != "") {
 			t.Errorf("%s reason = %q", raw, reason)
 		}
+		packing := torrentInfo{Status: raw}.remote().Packing
+		if packing != (raw == "compressing" || raw == "uploading") {
+			t.Errorf("%s Packing = %v", raw, packing)
+		}
+	}
+}
+
+// app.real-debrid.com serves the same API; api.real-debrid.com is filtered
+// by some ISPs.
+func TestDefaultRootsAvoidFilteredHost(t *testing.T) {
+	for _, root := range []string{DefaultBaseURL, DefaultOAuthURL} {
+		if !strings.HasPrefix(root, "https://app.real-debrid.com/") {
+			t.Errorf("root %s, want https://app.real-debrid.com/…", root)
+		}
 	}
 }
 

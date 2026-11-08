@@ -541,6 +541,45 @@ func TestDebridUnavailableKeepsPolling(t *testing.T) {
 	awaitCond(t, "ready after outages", 5*time.Second, func() bool { return fired.Load() == 1 })
 }
 
+// The row says when the service cannot be reached, so stale cloud progress
+// never passes for live, and says when the service packs the files.
+func TestDebridRowNotesUnreachableAndPacking(t *testing.T) {
+	fastDebrid(t, 10*time.Millisecond)
+	var mode atomic.Int32 // 0 packing, 1 unreachable, 2 downloading
+	fake := &fakeDebrid{}
+	fake.info = func(_ int, selected bool) (debrid.RemoteInfo, error) {
+		if !selected {
+			return remoteAt(debrid.WaitingSelection, 0, false), nil
+		}
+		switch mode.Load() {
+		case 0:
+			info := remoteAt(debrid.Downloading, 100, true)
+			info.Packing = true
+			return info, nil
+		case 1:
+			return debrid.RemoteInfo{}, &debrid.Error{Provider: "Real-Debrid", Kind: debrid.ErrUnavailable}
+		}
+		return remoteAt(debrid.Downloading, 50, true), nil
+	}
+	eng := newDebridTestEngine(t, fake)
+	h, _, err := eng.AddDebridForPreview(t.Context(), testMagnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitCond(t, "the file list", 5*time.Second, func() bool { _, ok := eng.DebridFiles(h); return ok })
+	if err := eng.StartDebrid(h, nil, DebridOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	note := func(want string) func() bool {
+		return func() bool { s, _ := eng.Snapshot(h); return s.State == StateRemote && s.Note == want }
+	}
+	awaitCond(t, "the packing note", 5*time.Second, note("☁ RD packing the files"))
+	mode.Store(1)
+	awaitCond(t, "the unreachable note", 5*time.Second, note(NoteDebridUnreachable("RD")))
+	mode.Store(2)
+	awaitCond(t, "the live progress again", 5*time.Second, note("☁ RD 50 %"))
+}
+
 func TestDebridAddErrorLeavesNothing(t *testing.T) {
 	fake := &fakeDebrid{addErr: &debrid.Error{Provider: "Real-Debrid", Kind: debrid.ErrNotLinked}}
 	eng := newDebridTestEngine(t, fake)

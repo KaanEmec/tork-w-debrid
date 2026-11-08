@@ -24,8 +24,12 @@ import (
 const (
 	// ProviderName is the display name used in errors and the UI.
 	ProviderName = "Real-Debrid"
-	// DefaultBaseURL is the REST API root.
-	DefaultBaseURL = "https://api.real-debrid.com/rest/1.0/"
+	// DefaultBaseURL is the REST API root. It uses app.real-debrid.com, which
+	// serves the same API as the documented api.real-debrid.com: some ISPs
+	// (Turkcell Superonline, for one) drop TLS handshakes that name
+	// api.real-debrid.com, while app.real-debrid.com and the download hosts
+	// get through.
+	DefaultBaseURL = "https://app.real-debrid.com/rest/1.0/"
 
 	maxTries        = 3
 	maxRetryAfter   = 30 * time.Second

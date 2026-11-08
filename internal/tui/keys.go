@@ -162,8 +162,10 @@ func (a *App) screenKeys() []keyHint {
 			onStrip("↑↓", "move"),
 			onStrip("enter", "open"),
 			onStrip("p", "pause"),
+			onStrip("x", "remove"),
+			onStrip("d", "delete"),
 			onStrip("esc", "back"),
-			inCard("x", "remove; c toggles the cloud copy: delete / keep"),
+			inCard("x / d", "in the dialog, c toggles the Real-Debrid cloud copy: delete / keep"),
 			inCard("p on a held row", "retry it"),
 			inCard("s", "seed on or off (torrents)"),
 			inCard("t", "download as a torrent after Real-Debrid refuses it"),
@@ -172,7 +174,8 @@ func (a *App) screenKeys() []keyHint {
 			inCard("r", "relink to existing files"),
 			inCard("y", "copy full path"),
 			inCard("Y", "copy magnet"),
-			inCard("d", "delete the data too"),
+			inCard("x", "remove from the list, keep the files"),
+			inCard("d", "stop and delete the downloaded files, partial ones too"),
 			inCard("g/G", "top / bottom"),
 		}
 		if revealAvailable {

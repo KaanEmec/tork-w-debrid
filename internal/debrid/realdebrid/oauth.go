@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	// DefaultOAuthURL is the OAuth2 root for the device flow and refreshes.
-	DefaultOAuthURL = "https://api.real-debrid.com/oauth/v2/"
+	// DefaultOAuthURL is the OAuth2 root for the device flow and refreshes,
+	// on app.real-debrid.com for the same reason as DefaultBaseURL.
+	DefaultOAuthURL = "https://app.real-debrid.com/oauth/v2/"
 	// OpenSourceClientID is Real-Debrid's public client ID for open-source
 	// apps, from the "Workflow for opensource apps" section of
 	// https://api.real-debrid.com/. The device flow trades it for a

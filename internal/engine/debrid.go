@@ -169,6 +169,9 @@ type debridItem struct {
 	readyFired bool              // the ready hook ran
 	err        error             // why the item failed
 	note       string
+	// unreachable: the last call to the service failed on the network or was
+	// refused as busy; the poller keeps retrying and the row says so.
+	unreachable bool
 
 	cancel   context.CancelFunc // stops the poller; nil while none runs
 	pollDone chan struct{}      // closed when the current poller returns
@@ -498,6 +501,9 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 	// backoff waits after a transient error; false when ctx ended
 	backoff := func() bool {
 		failures++
+		e.mu.Lock()
+		it.unreachable = true
+		e.mu.Unlock()
 		return debridSleep(ctx, it, debridRetryDelay(failures))
 	}
 	stop := func(err error) {
@@ -592,6 +598,7 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 			return
 		}
 		it.info, it.infoAt = info, now
+		it.unreachable = false
 		if it.name == "" && info.Name != "" {
 			it.name = info.Name
 		}
@@ -886,7 +893,7 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 			}
 			return s
 		}
-		if !it.remoteVisible(now) {
+		if !it.remoteVisible(now) && !it.unreachable {
 			s.State = StateFetchingMeta // like a torrent connecting
 			s.Note = NoteDebridStarting
 			return s
@@ -904,10 +911,17 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 			s.ETA = time.Duration(float64(s.Length-s.BytesCompleted) / s.SpeedBps * float64(time.Second))
 		}
 		switch {
+		case it.unreachable:
+			// the progress shown is stale: never let it pass for live
+			s.Note = NoteDebridUnreachable(it.short)
 		case it.phase == DebridReady:
 			s.Note = "☁ " + it.short + " ready"
 		case it.info.Status == debrid.Queued || it.info.Status == debrid.WaitingSelection:
 			s.Note = "☁ " + it.short + " queued"
+		case it.info.Packing:
+			// the service packs several files into one archive before the
+			// links appear; its progress can sit at 100 % meanwhile
+			s.Note = "☁ " + it.short + " packing the files"
 		default:
 			s.Note = fmt.Sprintf("☁ %s %d %%", it.short, int(progress))
 		}

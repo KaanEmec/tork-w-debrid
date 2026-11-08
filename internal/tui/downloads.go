@@ -1371,9 +1371,9 @@ func (a *App) viewDownloads() string {
 
 	help := a.keyStrip(a.helpBudget(width))
 	if d.confirmRemove != nil {
-		verb := "remove from list"
+		verb := "remove from the list, keep the files"
 		if d.confirmRemove.deleteData {
-			verb = "delete data"
+			verb = "stop and delete the downloaded files"
 		}
 		confirm := []string{hint("y/enter", "confirm")}
 		if d.confirmRemove.debrid {
@@ -1657,7 +1657,7 @@ func debridDetail(it downloadItem, width int) string {
 	case it.Route == routeStarting:
 		return route + files + dim(" · checking whether it is ready")
 	case it.ViaDebrid && it.State == engine.StatePaused && showDownloadNote(it.Note):
-		return route + files + dim(" · p retry · x remove")
+		return route + files + dim(" · p retry · x remove · d delete files")
 	}
 	return ""
 }
@@ -1877,7 +1877,7 @@ func showDownloadNote(note string) bool {
 func downloadActionHint(it downloadItem) string {
 	switch it.State {
 	case engine.StatePaused:
-		return "p resume · m move · x remove"
+		return "p resume · x remove · d delete files"
 	case engine.StateMissing:
 		return "r relink · m move · x remove"
 	case engine.StateDone, engine.StateSeeding:
@@ -1888,7 +1888,7 @@ func downloadActionHint(it downloadItem) string {
 	case engine.StateVerifying:
 		return "verification in progress"
 	default:
-		return "p pause · m move · x remove · ? all keys"
+		return "p pause · x remove · d delete files · ? all keys"
 	}
 }
 

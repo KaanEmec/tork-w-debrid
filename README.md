@@ -482,7 +482,7 @@ highlights:
 - **isos** `↑↓` browse, `enter` grab the latest official image
 - **results** `enter` preview (or download when preview is disabled), `/` edit search, `tab` browse categories and destinations, `f` text filter, `o` sort, `z` hide zero seeders, `r` reset filters, `ctrl+f` resolution/size filters, `s` source status, `D` grab now, `Y` copy magnet
 - **preview** `enter` download what's selected, `space` toggle a file or folder, `←→` fold, `a`/`n` select all or none
-- **downloads** `enter` open the file, `o` show it in your file manager, `p` pause/resume (or retry a held Real-Debrid row), `t` download a refused Real-Debrid row as a torrent, `s` seed (torrents only), `v` fully verify completed data, `m` move, `r` relink, `y` copy full path, `Y` copy magnet, `x` remove (`c` in the dialog: delete or keep the cloud copy), `d` delete data
+- **downloads** `enter` open the file, `o` show it in your file manager, `p` pause/resume (or retry a held Real-Debrid row), `t` download a refused Real-Debrid row as a torrent, `s` seed (torrents only), `v` fully verify completed data, `m` move, `r` relink, `y` copy full path, `Y` copy magnet, `x` remove from the list and keep the files, `d` stop and delete the downloaded files, partial ones too (for a Real-Debrid row, `c` in either dialog deletes or keeps the cloud copy)
 - **settings** `F5`; `↑↓` move, `enter` change or act, `space` toggle, `←→` step through choices
 - On home, `tab` / `shift+tab` moves between the search field and menu choices.
 - In results, `tab` switches between the list and browse menu; choose Downloads there, or use `^d`. From Linux ISOs, `tab` opens downloads. In downloads, `tab` or `esc` returns to where you were.
