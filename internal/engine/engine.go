@@ -123,7 +123,7 @@ type Snapshot struct {
 	// Debrid is what state.json keeps of a debrid item (see
 	// ApplyDebridState), else nil.
 	Debrid *DebridState
-	// Retrying: a debrid download held by a network outage starts again by
+	// Retrying: a download stopped by a network outage starts again by
 	// itself soon, so the UI keeps watching it.
 	Retrying bool
 }
@@ -973,6 +973,7 @@ func (e *Engine) Resume(h metainfo.Hash) error {
 		}
 		e.mu.Lock()
 		if current, exists := e.direct[h]; exists && current == d && d.state == StatePaused {
+			d.autoRetries = 0 // a manual resume starts the count again
 			e.startDirectLocked(d)
 		}
 		e.mu.Unlock()

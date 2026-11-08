@@ -56,6 +56,13 @@ type directItem struct {
 	seg         *segmentRun       // live scheduler of a segmented run, or nil
 	debridConns bool              // follow debrid.connections (a debrid file) instead of connections
 	err         error             // why the last run failed, or nil
+	// Automatic restarts after a network outage (top-level downloads only;
+	// a debrid item restarts its files itself): autoRetries counts them since
+	// the last manual resume, runGen tells a pending restart that the run it
+	// was made for is over, and autoPending marks one as due.
+	autoRetries int
+	runGen      int
+	autoPending bool
 }
 
 // key identifies the download: its resume key, or else its URL.
@@ -213,6 +220,8 @@ func (e *Engine) startDirectLocked(it *directItem) {
 	it.state = StateDownloading
 	it.note = ""
 	it.err = nil
+	it.runGen++
+	it.autoPending = false
 	it.samples = ring{}
 	it.refreshes, it.refreshErr = 0, nil
 	e.dwg.Add(1)
@@ -586,10 +595,55 @@ func (e *Engine) failDirect(ctx context.Context, it *directItem, err error) {
 		return
 	}
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	it.state, it.cancel = StatePaused, nil
 	it.note = shortNetErr(err)
 	it.err = err
-	e.mu.Unlock()
+	var lost directNetError
+	if errors.As(err, &lost) && it.autoRetries < directTuning.autoRetries && !e.closing {
+		if h, ok := e.directHashLocked(it); ok {
+			e.autoRestartDirectLocked(h, it)
+		}
+	}
+}
+
+// directHashLocked finds a top-level direct download's hash; debrid files
+// are not in e.direct. Caller holds e.mu.
+func (e *Engine) directHashLocked(it *directItem) (metainfo.Hash, bool) {
+	for h, d := range e.direct {
+		if d == it {
+			return h, true
+		}
+	}
+	return metainfo.Hash{}, false
+}
+
+// autoRestartDirectLocked starts a download stopped by a network outage
+// again after a back-off, unless it was resumed or removed meanwhile.
+// Caller holds e.mu.
+func (e *Engine) autoRestartDirectLocked(h metainfo.Hash, it *directItem) {
+	it.autoRetries++
+	it.autoPending = true
+	wait := autoRetryWait(it.autoRetries, directTuning.autoRetryBase, directTuning.autoRetryMax)
+	it.note = autoRetryNote(wait)
+	gen := it.runGen
+	time.AfterFunc(wait, func() {
+		e.mu.Lock()
+		if e.direct[h] != it || it.runGen != gen || it.state != StatePaused || e.closing {
+			e.mu.Unlock()
+			return
+		}
+		done := it.runDone
+		e.mu.Unlock()
+		if done != nil {
+			<-done // the failed run has released its files
+		}
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if e.direct[h] == it && it.runGen == gen && it.state == StatePaused && !e.closing {
+			e.startDirectLocked(it)
+		}
+	})
 }
 
 // shortNetErr compresses a raw network error into a calm one-liner.
@@ -647,6 +701,7 @@ func (e *Engine) directSnapshot(h metainfo.Hash, it *directItem, now time.Time) 
 		DownloadDir: it.downloadDir, DataPath: it.dataPath,
 		BytesCompleted: it.done, Length: it.length,
 		State: it.state, Note: it.note,
+		Retrying: it.state == StatePaused && it.autoPending,
 	}
 	if it.state == StateDownloading {
 		it.samples.push(sample{at: now, bytes: it.done})

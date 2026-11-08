@@ -40,6 +40,12 @@ var directTuning = struct {
 	restartCooldown time.Duration // minimum gap between restarts of one connection
 	slowRatio       float64       // slower than this share of the average is slow
 	slowChecks      int           // checks in a row before a restart
+	// A download stopped by a network outage starts again by itself after
+	// autoRetryBase, doubling up to autoRetryMax, at most autoRetries times
+	// in a row (about 17 minutes in all); p restarts it at once.
+	autoRetryBase time.Duration
+	autoRetryMax  time.Duration
+	autoRetries   int
 }{
 	retryBase:       time.Second,
 	maxTries:        5,
@@ -54,6 +60,19 @@ var directTuning = struct {
 	restartCooldown: time.Minute,
 	slowRatio:       0.3,
 	slowChecks:      2,
+	autoRetryBase:   5 * time.Second,
+	autoRetryMax:    time.Minute,
+	autoRetries:     20,
+}
+
+// autoRetryWait is the wait before automatic restart number n (1-based).
+func autoRetryWait(n int, base, limit time.Duration) time.Duration {
+	return min(base<<min(max(n-1, 0), 6), max(limit, base))
+}
+
+// autoRetryNote is the row note while an automatic restart is due.
+func autoRetryNote(wait time.Duration) string {
+	return fmt.Sprintf("connection lost - retrying in %s · p retries now", wait.Round(time.Second))
 }
 
 // directBackoff is the wait before retry number try (1-based): 1 s, 2 s, 4 s,

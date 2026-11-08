@@ -435,8 +435,8 @@ func lostNetwork(err error) bool {
 func (e *Engine) autoRestartDebridLocked(it *debridItem) {
 	it.autoRetries++
 	it.autoPending = true
-	wait := min(debridTuning.autoRetryBase<<min(it.autoRetries-1, 6), max(debridTuning.retryMax, debridTuning.autoRetryBase))
-	it.note = fmt.Sprintf("connection lost - retrying in %s · p retries now", wait.Round(time.Second))
+	wait := autoRetryWait(it.autoRetries, debridTuning.autoRetryBase, debridTuning.retryMax)
+	it.note = autoRetryNote(wait)
 	gen := it.holdGen
 	time.AfterFunc(wait, func() {
 		e.mu.Lock()
