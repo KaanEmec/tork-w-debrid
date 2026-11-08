@@ -621,3 +621,12 @@ func TestRemoveSavedDebridRowDeletesCloudCopy(t *testing.T) {
 		t.Error("a torrent row offers a cloud copy")
 	}
 }
+
+func TestSavedDebridRowKeepsArchiveNote(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	a.downloads.pathExists = map[string]bool{"/d/Sintel": true}
+	it := a.itemFromEntry(&state.Entry{Magnet: "m", Name: "Sintel", Done: true, DataPath: "/d/Sintel", Via: "realdebrid", RemoteNote: "Real-Debrid sent one archive"}, 0)
+	if it.Note != "Real-Debrid sent one archive" || !showDownloadNote(it.Note) {
+		t.Fatalf("note = %q", it.Note)
+	}
+}

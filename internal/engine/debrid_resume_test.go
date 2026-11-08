@@ -315,3 +315,27 @@ func TestDebridSelectionMapsByPathAndSize(t *testing.T) {
 		t.Fatalf("selection without an old list = %v", got)
 	}
 }
+
+// "Real-Debrid sent one archive" is saved with the entry and shown again
+// after a restart.
+func TestDebridArchiveNoteSurvivesRestart(t *testing.T) {
+	entry := state.Entry{Magnet: testMagnet}
+	if !ApplyDebridState(&entry, Snapshot{Debrid: &DebridState{Via: "realdebrid", RemoteID: "R", Note: "Real-Debrid sent one archive"}}) ||
+		entry.RemoteNote != "Real-Debrid sent one archive" {
+		t.Fatalf("entry note = %q", entry.RemoteNote)
+	}
+	// a fresh run before its files are planned has no note: keep the saved one
+	ApplyDebridState(&entry, Snapshot{Debrid: &DebridState{Via: "realdebrid", RemoteID: "R"}})
+	if entry.RemoteNote == "" {
+		t.Fatal("the saved note was cleared")
+	}
+	eng := newDebridTestEngine(t, &fakeDebrid{})
+	entry.Name, entry.Done, entry.Length, entry.DownloadDir = "Show", true, 10, t.TempDir()
+	h, err := eng.ResumeDebrid(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := eng.Snapshot(h); s.State != StateDone || s.Note != "Real-Debrid sent one archive" {
+		t.Fatalf("resumed: state %v, note %q", s.State, s.Note)
+	}
+}

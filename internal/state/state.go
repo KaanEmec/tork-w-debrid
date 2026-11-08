@@ -40,6 +40,9 @@ type Entry struct {
 	RemoteID    string `json:"remote_id,omitempty"`    // the service's torrent ID
 	RemoteFiles []int  `json:"remote_files,omitempty"` // chosen remote file IDs (none = all)
 	Phase       string `json:"phase,omitempty"`        // "cloud" or "local"
+	// RemoteNote is the row note of how the service sent the files, such as
+	// "Real-Debrid sent one archive", kept so it survives a restart.
+	RemoteNote string `json:"remote_note,omitempty"`
 	// TorrentData is the .torrent the download was started from when there
 	// was no magnet, so it can be added to the service again.
 	TorrentData []byte `json:"torrent_data,omitempty"`

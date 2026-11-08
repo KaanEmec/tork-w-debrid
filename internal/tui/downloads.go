@@ -933,6 +933,8 @@ func (a *App) itemFromEntry(e *state.Entry, idx int) downloadItem {
 		note = "saved in state"
 		if !pathKnown {
 			note += " - checking files"
+		} else if e.RemoteNote != "" {
+			note = e.RemoteNote // "Real-Debrid sent one archive"
 		}
 	case e.Paused:
 		st = engine.StatePaused
