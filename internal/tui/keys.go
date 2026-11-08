@@ -161,14 +161,20 @@ func (a *App) screenKeys() []keyHint {
 		keys := []keyHint{
 			onStrip("↑↓", "move"),
 			onStrip("enter", "open"),
+		}
+		if it, ok := a.selectedDownload(a.downloadItems()); ok && it.Live && it.Trouble != "" {
+			// a Real-Debrid row in trouble: the way out goes up front
+			keys = append(keys, onStrip("t", "torrent"))
+		}
+		keys = append(keys,
 			onStrip("p", "pause"),
 			onStrip("x", "remove"),
 			onStrip("d", "delete"),
 			onStrip("esc", "back"),
-			inCard("x / d", "in the dialog, c toggles the Real-Debrid cloud copy: delete / keep"),
+			inCard("x / d / t", "in the dialog, c toggles the Real-Debrid cloud copy: delete / keep"),
 			inCard("p on a held row", "retry it"),
 			inCard("s", "seed on or off (torrents)"),
-			inCard("t", "download as a torrent after Real-Debrid refuses it"),
+			inCard("t", "download a Real-Debrid row as a normal torrent instead"),
 			inCard("v", "verify completed data"),
 			inCard("m", "move to another folder"),
 			inCard("r", "relink to existing files"),
@@ -177,7 +183,7 @@ func (a *App) screenKeys() []keyHint {
 			inCard("x", "remove from the list, keep the files"),
 			inCard("d", "stop and delete the downloaded files, partial ones too"),
 			inCard("g/G", "top / bottom"),
-		}
+		)
 		if revealAvailable {
 			keys = append(keys, inCard("o", revealLabel))
 		}

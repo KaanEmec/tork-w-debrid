@@ -438,12 +438,69 @@ func TestFailedDebridRowShowsReasonAndWay(t *testing.T) {
 		State: engine.StatePaused, Note: "☁ RD dead: no seeders"}}
 	a.downloads.itemsReady = true
 	view := ansi.Strip(a.viewDownloads())
-	for _, want := range []string{"dead: no seeders", "Route: Real-Debrid", "t download as a torrent"} {
+	for _, want := range []string{"dead: no seeders", "Route: Real-Debrid", "t download it as a normal torrent"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("failed row misses %q:\n%s", want, view)
 		}
 	}
 	assertRenderFits(t, a.viewDownloads(), 100)
+}
+
+// A Real-Debrid row in trouble shows the problem and `t` on the row, in the
+// footer and once in a toast; `t` asks first unless Real-Debrid refused it.
+func TestDebridTroubleOffersTheTorrent(t *testing.T) {
+	a := &App{width: 110, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	stuck := downloadItem{Name: "Stuck show", Magnet: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+		ViaDebrid: true, Live: true, Route: routeCloud, State: engine.StateRemote, Trouble: "RD stuck · 0 seeders"}
+	a.downloads.items = []downloadItem{stuck}
+	a.downloads.itemsReady = true
+	view := ansi.Strip(a.viewDownloads())
+	for _, want := range []string{"!  Stuck show", "RD stuck · 0 seeders  t torrent", "t download it as a normal torrent · or keep waiting", "enter open   t torrent"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("trouble row misses %q:\n%s", want, view)
+		}
+	}
+	assertRenderFits(t, a.viewDownloads(), 110)
+
+	if cmd := a.downloadAsTorrent(stuck); cmd != nil {
+		t.Fatal("a row Real-Debrid has not refused must ask before switching")
+	}
+	conf := a.downloads.confirmRemove
+	if conf == nil || !conf.toTorrent || !conf.deleteRemote || conf.deleteData {
+		t.Fatalf("dialog = %+v, want the torrent dialog with the cloud copy deleted", conf)
+	}
+	if view := ansi.Strip(a.viewDownloads()); !strings.Contains(view, "download as a normal torrent (peers see your IP)?") || !strings.Contains(view, "c cloud copy: delete") {
+		t.Errorf("dialog text:\n%s", view)
+	}
+	a.downloads.confirmRemove = nil
+
+	local := stuck
+	local.DebridLocal, local.Route, local.State = true, routeLocal, engine.StatePaused
+	a.downloadAsTorrent(local)
+	if c := a.downloads.confirmRemove; c == nil || !c.deleteData {
+		t.Fatalf("local phase dialog = %+v, want Real-Debrid's partial files deleted", c)
+	}
+	a.downloads.confirmRemove = nil
+
+	refused := stuck
+	refused.Failed = true
+	if cmd := a.downloadAsTorrent(refused); cmd == nil || a.downloads.confirmRemove != nil {
+		t.Fatal("a refused row switches at once")
+	}
+
+	snap := engine.Snapshot{Name: "Stuck show", Via: "realdebrid", Trouble: "can't reach RD"}
+	if a.troubleToast(snap) == nil {
+		t.Fatal("no toast for new trouble")
+	}
+	if a.troubleToast(snap) != nil {
+		t.Fatal("the toast came twice")
+	}
+	snap.Trouble = ""
+	a.troubleToast(snap)
+	snap.Trouble = "can't reach RD"
+	if a.troubleToast(snap) == nil {
+		t.Fatal("trouble that came back is not told again")
+	}
 }
 
 func TestRemoveDialogOffersTheCloudToggle(t *testing.T) {

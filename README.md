@@ -76,8 +76,16 @@ download except autopilot and the Linux ISO shelf, which never use it.
   next time you start `torkwd`.
 - Sometimes Real-Debrid packs several files into one RAR archive. The row says
   so, and the archive is downloaded as it is.
-- If Real-Debrid refuses a torrent, the row says why. `t` on that row downloads
-  it as a normal torrent instead, and `p` retries a row that is held.
+- When a Real-Debrid row is in trouble, it moves to the top of the list with a
+  red `!` and says why: Real-Debrid refused the torrent, can't be reached for
+  30 seconds, has been stuck with no seeders and no progress for 5 minutes, or
+  the row is held after an error. The row and the footer show `t torrent`, and
+  a toast says so once, whichever screen you are on.
+- `t` downloads any unfinished Real-Debrid row as a normal torrent instead.
+  It asks first (peers will see your IP; `c` keeps or deletes the cloud copy),
+  except on a row Real-Debrid refused. If Real-Debrid's files had started
+  coming down, those partial files are deleted. torkwd never switches to a
+  torrent by itself. `p` retries a held row.
 - On the Downloads screen, `x` asks before removing a row. In the dialog `c`
   toggles "cloud copy: delete / keep". The default is delete while the torrent
   is still in the cloud phase and keep once the local download has started.
@@ -482,7 +490,7 @@ highlights:
 - **isos** `↑↓` browse, `enter` grab the latest official image
 - **results** `enter` preview (or download when preview is disabled), `/` edit search, `tab` browse categories and destinations, `f` text filter, `o` sort, `z` hide zero seeders, `r` reset filters, `ctrl+f` resolution/size filters, `s` source status, `D` grab now, `Y` copy magnet
 - **preview** `enter` download what's selected, `space` toggle a file or folder, `←→` fold, `a`/`n` select all or none
-- **downloads** `enter` open the file, `o` show it in your file manager, `p` pause/resume (or retry a held Real-Debrid row), `t` download a refused Real-Debrid row as a torrent, `s` seed (torrents only), `v` fully verify completed data, `m` move, `r` relink, `y` copy full path, `Y` copy magnet, `x` remove from the list and keep the files, `d` stop and delete the downloaded files, partial ones too (for a Real-Debrid row, `c` in either dialog deletes or keeps the cloud copy)
+- **downloads** `enter` open the file, `o` show it in your file manager, `p` pause/resume (or retry a held Real-Debrid row), `t` download a Real-Debrid row as a normal torrent instead, `s` seed (torrents only), `v` fully verify completed data, `m` move, `r` relink, `y` copy full path, `Y` copy magnet, `x` remove from the list and keep the files, `d` stop and delete the downloaded files, partial ones too (for a Real-Debrid row, `c` in either dialog deletes or keeps the cloud copy)
 - **settings** `F5`; `↑↓` move, `enter` change or act, `space` toggle, `←→` step through choices
 - On home, `tab` / `shift+tab` moves between the search field and menu choices.
 - In results, `tab` switches between the list and browse menu; choose Downloads there, or use `^d`. From Linux ISOs, `tab` opens downloads. In downloads, `tab` or `esc` returns to where you were.

@@ -95,6 +95,8 @@ type downloadItem struct {
 	ViaDebrid     bool    // the file came (or comes) through Real-Debrid
 	RemoteFiles   int     // files chosen on Real-Debrid (0 = every file or unknown)
 	Failed        bool    // Real-Debrid refused the torrent; Note says why (t = as a torrent)
+	Trouble       string  // why Real-Debrid may not finish it (engine.Snapshot.Trouble); t offers the torrent
+	DebridLocal   bool    // Real-Debrid's files were coming down to this machine
 	Segments      []segmentCell
 	ConnSpeeds    []float64 // bytes/s per connection, for the segment line
 	ConnWarn      []bool    // per connection: retrying or just restarted (amber)
@@ -143,6 +145,9 @@ type removeConfirm struct {
 	// remoteID is the saved cloud copy of a row that is not in the engine
 	// (a finished download from an earlier run); "" for live rows.
 	remoteID string
+	// toTorrent: the `t` dialog. The row is dropped and its magnet added as
+	// a normal torrent; deleteData then means Real-Debrid's partial files.
+	toTorrent bool
 }
 
 // removeDebridDoneMsg ends a debrid remove, which waits on the service.
@@ -513,6 +518,9 @@ func (a *App) updateRemoveConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "y", "enter":
 		d.confirmRemove = nil
+		if conf.toTorrent {
+			return a, a.torrentFallbackCmd(conf)
+		}
 		if conf.debrid && conf.remoteID != "" {
 			return a, a.removeSavedDebrid(conf)
 		}
@@ -591,18 +599,38 @@ func (a *App) onRemoveDebrid(msg removeDebridDoneMsg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// downloadAsTorrent is the `t` key (Q1): a debrid row that Real-Debrid
-// refused is dropped and its magnet starts as a normal torrent.
+// downloadAsTorrent is the `t` key: an unfinished Real-Debrid row is dropped
+// and its magnet starts as a normal torrent. A row Real-Debrid refused
+// switches at once; any other asks first, since peers will see the IP and
+// Real-Debrid may still finish it.
 func (a *App) downloadAsTorrent(it downloadItem) tea.Cmd {
-	if !it.Failed || !it.Live || !strings.HasPrefix(it.Magnet, "magnet:") {
-		if a.debridDownload(it) && it.Live {
-			return a.showError("t starts a torrent only after Real-Debrid refuses it")
-		}
+	if !it.Live || !a.debridDownload(it) {
 		return nil
 	}
-	eng := a.eng
+	switch {
+	case finishedDownload(it):
+		return a.showError("already downloaded through Real-Debrid")
+	case !strings.HasPrefix(it.Magnet, "magnet:"):
+		return a.showError("t needs a magnet link; this one came from a .torrent file")
+	}
+	conf := &removeConfirm{
+		item: it, toTorrent: true, debrid: true, deleteRemote: true,
+		deleteData: it.DebridLocal, // Real-Debrid's partial files are of no use to the torrent
+	}
+	if it.Failed {
+		return a.torrentFallbackCmd(conf)
+	}
+	a.downloads.confirmRemove = conf
+	return nil
+}
+
+// torrentFallbackCmd drops the debrid row off the UI thread (the cloud
+// delete waits on the service); onTorrentFallback then adds the torrent.
+func (a *App) torrentFallbackCmd(conf *removeConfirm) tea.Cmd {
+	eng, it := a.eng, conf.item
+	opts := conf.options()
 	return func() tea.Msg {
-		res, err := eng.RemoveWithOptions(it.Hash, engine.RemoveOptions{DeleteRemote: true})
+		res, err := eng.RemoveWithOptions(it.Hash, opts)
 		return torrentFallbackMsg{item: it, res: res, err: err}
 	}
 }
@@ -628,6 +656,9 @@ func (a *App) onTorrentFallback(msg torrentFallbackMsg) tea.Cmd {
 	a.refreshDownloadItems()
 	if err != nil {
 		return tea.Batch(a.saveState(), a.showError("torrent start failed: "+err.Error()))
+	}
+	if msg.res.Note != "" { // the torrent runs; the cloud copy is still there
+		return tea.Batch(a.saveState(), a.ensureTick(), a.showToast("started as a torrent · "+msg.res.Note, toastWarn, toastLong))
 	}
 	return tea.Batch(a.saveState(), a.ensureTick(), a.showToast("started as a torrent · "+it.Name, toastOK, toastQuick))
 }
@@ -666,7 +697,7 @@ func (a *App) refreshDownloadItems() {
 	}
 	items := a.buildDownloadItems()
 	sort.SliceStable(items, func(i, j int) bool {
-		return downloadStatePriority(items[i].State) < downloadStatePriority(items[j].State)
+		return downloadItemPriority(items[i]) < downloadItemPriority(items[j])
 	})
 	d.items = items
 	d.metrics = summarizeDownloads(items)
@@ -771,6 +802,15 @@ func (d *downloadsModel) syncSelection(items []downloadItem) {
 	d.selectedKey = downloadItemKey(items[d.win.cursor])
 }
 
+// downloadItemPriority sorts the list: a Real-Debrid row in trouble first
+// (it waits on a decision: the torrent, or more patience), then by state.
+func downloadItemPriority(it downloadItem) int {
+	if it.Live && it.Trouble != "" {
+		return -1
+	}
+	return downloadStatePriority(it.State)
+}
+
 func downloadStatePriority(s engine.TorrentState) int {
 	switch s {
 	case engine.StateDownloading, engine.StateFetchingMeta, engine.StateVerifying, engine.StatePreviewing, engine.StateRemote:
@@ -859,8 +899,10 @@ func itemFromSnapshot(s engine.Snapshot, idx int, live bool) downloadItem {
 		Live: live, EntryIndex: idx,
 	}
 	it.ViaDebrid = s.Via != "" || s.Debrid != nil
+	it.Trouble = s.Trouble
 	if s.Debrid != nil {
 		it.RemoteFiles = len(s.Debrid.RemoteFiles)
+		it.DebridLocal = s.Debrid.Phase == engine.DebridSavedLocal
 	}
 	switch {
 	case s.State == engine.StateRemote:
@@ -888,11 +930,13 @@ func cloudProgress(s engine.Snapshot) float64 {
 // "Real-Debrid 43 % · 12 MiB/s · 8 seeders", or "queued on Real-Debrid".
 func cloudNote(s engine.Snapshot) string {
 	if s.Remote != nil {
-		switch s.Remote.Status {
-		case debrid.Queued, debrid.WaitingSelection:
+		switch {
+		case s.Remote.Status == debrid.Queued, s.Remote.Status == debrid.WaitingSelection:
 			return "queued on Real-Debrid"
-		case debrid.Ready:
+		case s.Remote.Status == debrid.Ready:
 			return "Real-Debrid ready"
+		case s.Remote.Packing:
+			return "Real-Debrid packing the files"
 		}
 	}
 	parts := []string{fmt.Sprintf("Real-Debrid %d %%", int(cloudProgress(s)*100))}
@@ -1372,7 +1416,12 @@ func (a *App) viewDownloads() string {
 	help := a.keyStrip(a.helpBudget(width))
 	if d.confirmRemove != nil {
 		verb := "remove from the list, keep the files"
-		if d.confirmRemove.deleteData {
+		switch {
+		case d.confirmRemove.toTorrent && d.confirmRemove.deleteData:
+			verb = "download as a normal torrent (peers see your IP; Real-Debrid's partial files are deleted)"
+		case d.confirmRemove.toTorrent:
+			verb = "download as a normal torrent (peers see your IP)"
+		case d.confirmRemove.deleteData:
 			verb = "stop and delete the downloaded files"
 		}
 		confirm := []string{hint("y/enter", "confirm")}
@@ -1536,6 +1585,9 @@ func (a *App) downloadRail(it downloadItem, railW, frame int) string {
 // downloadGlyph is the state glyph: ↓ downloading, ↑ seeding, ✓ done, Ⅱ
 // paused, ! missing, ☁ cloud phase, and the spinner for any wait.
 func (a *App) downloadGlyph(it downloadItem, frame int) string {
+	if it.Live && it.Trouble != "" {
+		return styleErr.Render("!")
+	}
 	switch it.Route {
 	case routeCloud:
 		return cloudGlyph()
@@ -1554,6 +1606,10 @@ func (a *App) downloadGlyph(it downloadItem, frame int) string {
 
 // downloadStatus is the muted text on the right of line 1.
 func (a *App) downloadStatus(it downloadItem) string {
+	if it.Live && it.Trouble != "" {
+		// the problem, and the way out, on the row itself
+		return styleErr.Render(it.Trouble) + "  " + hint("t", "torrent")
+	}
 	switch it.Route {
 	case routeCloud:
 		note := it.CloudNote
@@ -1641,9 +1697,14 @@ func debridDetail(it downloadItem, width int) string {
 	if it.RemoteFiles > 0 {
 		files = dim(" · ") + dim(plural(it.RemoteFiles, "file")+" selected")
 	}
+	torrent := dim(" · ") + styleKey.Render("t") + dim(" download it as a normal torrent")
 	switch {
 	case it.Failed:
-		return route + dim(" · t download as a torrent · x remove")
+		return route + torrent + dim(" · x remove")
+	case it.Live && it.Trouble != "" && it.State == engine.StatePaused:
+		return route + files + torrent + dim(" · p retry")
+	case it.Live && it.Trouble != "":
+		return route + files + torrent + dim(" · or keep waiting")
 	case it.Route == routeCloud:
 		keep := " · keep torkwd running"
 		if runtime.GOOS == "windows" {

@@ -72,6 +72,9 @@ func (a *App) debridNotices() tea.Cmd {
 		if s.Via == "" {
 			continue
 		}
+		if t := a.troubleToast(s); t != nil {
+			cmd = t
+		}
 		switch s.State {
 		case engine.StateRemote, engine.StateFetchingMeta, engine.StateDownloading, engine.StateDone:
 		default:
@@ -85,6 +88,29 @@ func (a *App) debridNotices() tea.Cmd {
 		}
 	}
 	return cmd
+}
+
+// troubleToast says once, wherever the user is, that a Real-Debrid row is in
+// trouble (Snapshot.Trouble) and how to get it as a torrent instead. It is
+// said again only after the trouble cleared and came back.
+func (a *App) troubleToast(s engine.Snapshot) tea.Cmd {
+	key := s.Hash.HexString()
+	if s.Trouble == "" {
+		delete(a.troubleTold, key)
+		return nil
+	}
+	if a.troubleTold[key] {
+		return nil
+	}
+	if a.troubleTold == nil {
+		a.troubleTold = map[string]bool{}
+	}
+	a.troubleTold[key] = true
+	where := "t in downloads gets it as a torrent"
+	if a.screen == screenDownloads {
+		where = "t gets it as a torrent"
+	}
+	return a.showToast(s.Trouble+" · "+truncate(s.Name, 32)+" · "+where, toastWarn, debridToastFor)
 }
 
 // Other ways to start a download (roadmap J4.5). `D` in the results ("download

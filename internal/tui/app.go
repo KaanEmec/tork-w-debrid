@@ -58,12 +58,13 @@ type App struct {
 	errGen          uint64
 	toast           toastState
 	helpOffset      int
-	showHelp        bool      // the `?` key card, drawn over whichever screen is active
-	lastTickSave    time.Time // throttles progress-only state.json writes on the tick
-	searchSeq       uint64    // generation for streamed searches; rejects late messages
-	background      bool      // UI is attached to a persistent local session
-	pendingAdds     int       // approved add commands not yet recorded in state
-	clipboardOutput io.Writer // shared with the foreground renderer
+	showHelp        bool            // the `?` key card, drawn over whichever screen is active
+	lastTickSave    time.Time       // throttles progress-only state.json writes on the tick
+	troubleTold     map[string]bool // infohash hex → its Real-Debrid trouble was toasted
+	searchSeq       uint64          // generation for streamed searches; rejects late messages
+	background      bool            // UI is attached to a persistent local session
+	pendingAdds     int             // approved add commands not yet recorded in state
+	clipboardOutput io.Writer       // shared with the foreground renderer
 	motion          motionState
 	debrid          debridStatus
 	previewSeq      uint64     // generation of debrid previews; drops late results (J4.1)

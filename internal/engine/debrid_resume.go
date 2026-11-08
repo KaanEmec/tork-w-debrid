@@ -232,6 +232,7 @@ func (e *Engine) restartDebridLocked(it *debridItem) {
 	it.holdGen++
 	it.autoPending = false
 	it.readds = 0
+	it.progressAt = time.Time{} // the stall check starts over
 	it.showRemote = true
 	if e.closing {
 		return

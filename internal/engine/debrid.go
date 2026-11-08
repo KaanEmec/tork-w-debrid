@@ -110,6 +110,8 @@ type RemoteProgress struct {
 	Seeders  int
 	// Reason explains a failed status in a few words.
 	Reason string
+	// Packing: the service packs the files into an archive (debrid.RemoteInfo).
+	Packing bool
 }
 
 // DebridReadyEvent is passed to the ready hooks.
@@ -171,7 +173,11 @@ type debridItem struct {
 	note       string
 	// unreachable: the last call to the service failed on the network or was
 	// refused as busy; the poller keeps retrying and the row says so.
-	unreachable bool
+	unreachable      bool
+	unreachableSince time.Time // when the current run of failed calls began
+	// progressAt is when the cloud's progress or status last changed, for
+	// the stall check (Snapshot.Trouble); zero until the first answer.
+	progressAt time.Time
 
 	cancel   context.CancelFunc // stops the poller; nil while none runs
 	pollDone chan struct{}      // closed when the current poller returns
@@ -502,7 +508,9 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 	backoff := func() bool {
 		failures++
 		e.mu.Lock()
-		it.unreachable = true
+		if !it.unreachable {
+			it.unreachable, it.unreachableSince = true, time.Now()
+		}
 		e.mu.Unlock()
 		return debridSleep(ctx, it, debridRetryDelay(failures))
 	}
@@ -596,6 +604,9 @@ func (e *Engine) runDebrid(ctx context.Context, it *debridItem) {
 		if e.debrid[it.hash] != it {
 			e.mu.Unlock()
 			return
+		}
+		if it.progressAt.IsZero() || info.Progress != it.info.Progress || info.Status != it.info.Status {
+			it.progressAt = now
 		}
 		it.info, it.infoAt = info, now
 		it.unreachable = false
@@ -837,6 +848,42 @@ func (it *debridItem) displayName() string {
 	return it.hash.HexString()
 }
 
+// debridStallAfter is how long the cloud may show no progress, with no
+// seeders, before the row calls the item stuck.
+var debridStallAfter = 5 * time.Minute
+
+// debridUnreachableAfter is how long calls to the service must keep failing
+// before the row calls it trouble; one failed poll is not.
+var debridUnreachableAfter = 30 * time.Second
+
+// trouble says in a few words why the item may not finish through the
+// service, or "" when nothing is wrong (Snapshot.Trouble). A pause the user
+// asked for is not trouble; a hold after a failure is. Caller holds e.mu.
+func (it *debridItem) trouble(now time.Time) string {
+	switch {
+	case it.phase == DebridFailed, it.paused && (it.err != nil || it.needsLogin):
+		if text := strings.TrimSpace(strings.TrimPrefix(it.note, "☁ ")); text != "" {
+			return text
+		}
+		return it.short + " failed"
+	case it.paused || it.phase == DebridDone:
+		return ""
+	case it.unreachable && now.Sub(it.unreachableSince) >= debridUnreachableAfter:
+		return "can't reach " + it.short
+	case it.stalled(now):
+		return it.short + " stuck · 0 seeders"
+	}
+	return ""
+}
+
+// stalled reports a cloud download with no seeders whose progress has not
+// moved for debridStallAfter. Packing is not a stall. Caller holds e.mu.
+func (it *debridItem) stalled(now time.Time) bool {
+	return it.phase == DebridCloud && !it.progressAt.IsZero() &&
+		now.Sub(it.progressAt) >= debridStallAfter &&
+		it.info.Seeders == 0 && !it.info.Packing && it.info.Status != debrid.Ready
+}
+
 // remoteVisible reports whether the row shows the cloud's progress: the ready
 // window after the selection has passed without the files being ready.
 func (it *debridItem) remoteVisible(now time.Time) bool {
@@ -865,8 +912,10 @@ func (e *Engine) debridSnapshot(h metainfo.Hash, it *debridItem, now time.Time) 
 		s.Remote = &RemoteProgress{
 			Status: it.info.Status, Progress: it.info.Progress,
 			SpeedBps: it.info.SpeedBps, Seeders: it.info.Seeders, Reason: it.info.Reason,
+			Packing: it.info.Packing,
 		}
 	}
+	s.Trouble = it.trouble(now)
 	switch it.phase {
 	case DebridAdding:
 		s.State = StateFetchingMeta

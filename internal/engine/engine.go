@@ -126,6 +126,10 @@ type Snapshot struct {
 	// Retrying: a download stopped by a network outage starts again by
 	// itself soon, so the UI keeps watching it.
 	Retrying bool
+	// Trouble says in a few words why a debrid item may not finish through
+	// the service ("can't reach RD", "RD stuck · 0 seeders", the failure
+	// reason), so the UI can offer the torrent instead; "" when all is well.
+	Trouble string
 }
 
 type MetadataSource string

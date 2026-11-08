@@ -580,6 +580,64 @@ func TestDebridRowNotesUnreachableAndPacking(t *testing.T) {
 	awaitCond(t, "the live progress again", 5*time.Second, note("☁ RD 50 %"))
 }
 
+// Snapshot.Trouble names a stalled or unreachable cloud download, but not a
+// pause the user asked for, nor a single failed poll.
+func TestDebridTrouble(t *testing.T) {
+	fastDebrid(t, 10*time.Millisecond)
+	oldStall, oldUnreach := debridStallAfter, debridUnreachableAfter
+	debridStallAfter, debridUnreachableAfter = 60*time.Millisecond, 60*time.Millisecond
+	t.Cleanup(func() { debridStallAfter, debridUnreachableAfter = oldStall, oldUnreach })
+
+	var mode atomic.Int32 // 0 stuck at 0 % with no seeders, 1 unreachable, 2 moving
+	var step atomic.Int32
+	fake := &fakeDebrid{}
+	fake.info = func(_ int, selected bool) (debrid.RemoteInfo, error) {
+		if !selected {
+			return remoteAt(debrid.WaitingSelection, 0, false), nil
+		}
+		switch mode.Load() {
+		case 0:
+			info := remoteAt(debrid.Downloading, 0, true)
+			info.Seeders = 0
+			return info, nil
+		case 1:
+			return debrid.RemoteInfo{}, &debrid.Error{Provider: "Real-Debrid", Kind: debrid.ErrUnavailable}
+		}
+		return remoteAt(debrid.Downloading, float64(step.Add(1)%90), true), nil
+	}
+	eng := newDebridTestEngine(t, fake)
+	h, _, err := eng.AddDebridForPreview(t.Context(), testMagnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitCond(t, "the file list", 5*time.Second, func() bool { _, ok := eng.DebridFiles(h); return ok })
+	if err := eng.StartDebrid(h, nil, DebridOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	trouble := func() string { s, _ := eng.Snapshot(h); return s.Trouble }
+	if got := trouble(); got != "" {
+		t.Fatalf("trouble right after the start: %q", got)
+	}
+	awaitCond(t, "the stall", 5*time.Second, func() bool { return trouble() == "RD stuck · 0 seeders" })
+
+	mode.Store(2)
+	awaitCond(t, "the stall to clear", 5*time.Second, func() bool { return trouble() == "" })
+
+	mode.Store(1)
+	awaitCond(t, "a failed poll", 5*time.Second, func() bool { s, _ := eng.Snapshot(h); return strings.HasPrefix(s.Note, "☁ can't reach") })
+	if got := trouble(); got != "" {
+		t.Fatalf("one failed poll is trouble already: %q", got)
+	}
+	awaitCond(t, "unreachable trouble", 5*time.Second, func() bool { return trouble() == "can't reach RD" })
+
+	if err := eng.Pause(h); err != nil {
+		t.Fatal(err)
+	}
+	if got := trouble(); got != "" {
+		t.Fatalf("a pause the user asked for is trouble: %q", got)
+	}
+}
+
 func TestDebridAddErrorLeavesNothing(t *testing.T) {
 	fake := &fakeDebrid{addErr: &debrid.Error{Provider: "Real-Debrid", Kind: debrid.ErrNotLinked}}
 	eng := newDebridTestEngine(t, fake)
