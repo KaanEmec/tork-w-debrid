@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -27,8 +29,9 @@ type introState struct {
 	active  bool
 	poster  bool // motion off: the still frame until a key
 	frame   int
-	version string // the running version: the version line and the once-per-update check
-	off     bool   // ui.intro is off: no intro after updates (replay still works)
+	start   time.Time // frame 0; frames follow the wall clock from here
+	version string    // the running version: the version line and the once-per-update check
+	off     bool      // ui.intro is off: no intro after updates (replay still works)
 }
 
 // SetVersion tells the UI which version is running.
@@ -68,6 +71,7 @@ func (a *App) maybeStartIntro() tea.Cmd {
 func (a *App) startIntro() tea.Cmd {
 	a.intro.active = true
 	a.intro.frame = 0
+	a.intro.start = time.Now()
 	a.intro.poster = !a.motionOn() || a.motion.detached
 	return tea.HideCursor
 }
@@ -111,7 +115,7 @@ func (a *App) updateIntro(msg tea.Msg) (bool, tea.Cmd) {
 			a.intro.active = false // too small to show; try again next start
 			return true, nil
 		}
-		a.intro.frame++
+		a.intro.frame = nextIntroFrame(a.intro.frame, a.intro.start, msg.at)
 		if a.intro.frame >= introFrames {
 			return true, a.endIntro()
 		}
@@ -142,6 +146,7 @@ type IntroModel struct {
 	version       string
 	motion        bool
 	frame         int
+	start         time.Time
 	width, height int
 }
 
@@ -155,7 +160,8 @@ func (m *IntroModel) Init() tea.Cmd {
 	if !m.motion {
 		return tea.HideCursor
 	}
-	return tea.Batch(tea.HideCursor, frameCmd(introFPS))
+	m.start = time.Now()
+	return tea.Batch(tea.HideCursor, introTick(m.start))
 }
 
 func (m *IntroModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -168,11 +174,11 @@ func (m *IntroModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.motion {
 			return m, nil
 		}
-		m.frame++
+		m.frame = nextIntroFrame(m.frame, m.start, msg.at)
 		if m.frame >= introFrames {
 			return m, tea.Quit
 		}
-		return m, frameCmd(introFPS)
+		return m, introTick(m.start)
 	}
 	return m, nil
 }

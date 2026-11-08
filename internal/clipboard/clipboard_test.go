@@ -60,6 +60,28 @@ func TestSSHCopyUsesConnectingTerminalAndItsMultiplexer(t *testing.T) {
 	}
 }
 
+// Each renderer write is one frame: the terminal must get it inside one
+// synchronized-output block, so it never paints half a frame.
+func TestSyncOutputWrapsEachWriteInOneBlock(t *testing.T) {
+	var terminal bytes.Buffer
+	out := NewSyncOutput(&terminal)
+	for _, frame := range []string{"frame one", "frame two"} {
+		terminal.Reset()
+		if n, err := out.Write([]byte(frame)); err != nil || n != len(frame) {
+			t.Fatalf("Write = %d, %v", n, err)
+		}
+		if want := "\x1b[?2026h" + frame + "\x1b[?2026l"; terminal.String() != want {
+			t.Fatalf("terminal got %q, want %q", terminal.String(), want)
+		}
+	}
+	if n, err := NewSyncOutput(brokenWriter{}).Write([]byte("frame")); n != 0 || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("failed write = %d, %v", n, err)
+	}
+	if _, err := NewSyncOutput(brokenWriter{short: true}).Write([]byte("frame")); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("a write that lost the closing marker reported %v", err)
+	}
+}
+
 // Bubble Tea checks the complete term.File interface, not just io.Writer or Fd.
 func TestOutputPreservesTerminalFile(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "terminal")
