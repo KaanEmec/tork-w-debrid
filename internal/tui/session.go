@@ -70,11 +70,15 @@ func (a *App) CheckpointSession() error {
 	return a.st.Save(a.cfg.StatePath())
 }
 
-func (a *App) SessionStatus() string {
+func (a *App) SessionStatus() string { return sessionStatus(a.eng.Snapshots()) }
+
+// sessionStatus is the `torkwd status` summary of the transfers.
+func sessionStatus(snaps []engine.Snapshot) string {
 	active, seeding := 0, 0
-	for _, s := range a.eng.Snapshots() {
+	for _, s := range snaps {
 		switch s.State {
-		case engine.StateDownloading, engine.StateFetchingMeta, engine.StateVerifying:
+		case engine.StateDownloading, engine.StateFetchingMeta, engine.StateVerifying,
+			engine.StateRemote: // a Real-Debrid download still in the cloud
 			active++
 		case engine.StateSeeding:
 			seeding++
