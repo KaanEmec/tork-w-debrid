@@ -64,3 +64,23 @@ func TestDirectDownloadServerRefusalWaitsForP(t *testing.T) {
 		t.Fatalf("a 500 answer restarts by itself: %+v", s)
 	}
 }
+
+// A resumed download's first speed reading counted the bytes read back from
+// the .part file (991 MiB/s shown on four ~100 MB/s connections).
+func TestResumedBytesAreNotSpeed(t *testing.T) {
+	eng := newDirectTestEngine(t)
+	it := &directItem{state: StateDownloading}
+	var h [20]byte
+	t0 := time.Now()
+	eng.directSnapshot(h, it, t0) // the run has not read its .part yet
+	it.done, it.loaded = 1<<30, true
+	eng.directSnapshot(h, it, t0.Add(500*time.Millisecond))
+	it.done += 50 << 20
+	s := eng.directSnapshot(h, it, t0.Add(time.Second))
+	if s.SpeedBps > 200<<20 {
+		t.Fatalf("speed %.0f MB/s right after a resume: the resumed bytes were counted", s.SpeedBps/1e6)
+	}
+	if s.SpeedBps <= 0 {
+		t.Fatal("no speed once data flows")
+	}
+}

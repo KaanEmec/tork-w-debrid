@@ -63,6 +63,9 @@ type directItem struct {
 	autoRetries int
 	runGen      int
 	autoPending bool
+	// loaded: this run has read how much is already on disk. Until then done
+	// may still jump from 0 to the resumed offset, so no speed is sampled.
+	loaded bool
 }
 
 // key identifies the download: its resume key, or else its URL.
@@ -222,6 +225,7 @@ func (e *Engine) startDirectLocked(it *directItem) {
 	it.err = nil
 	it.runGen++
 	it.autoPending = false
+	it.loaded = false
 	it.samples = ring{}
 	it.refreshes, it.refreshErr = 0, nil
 	e.dwg.Add(1)
@@ -312,7 +316,7 @@ func (e *Engine) runDirect(ctx context.Context, it *directItem) {
 	st := singleTransfer{part: part, hasher: hasher}
 	st.offset = hashExistingPart(part, hasher)
 	e.mu.Lock()
-	it.done = st.offset
+	it.done, it.loaded = st.offset, true
 	e.mu.Unlock()
 
 	if err := e.downloadDirectSingle(ctx, it, &st); err != nil {
@@ -464,7 +468,7 @@ func (e *Engine) directSingleAttempt(ctx context.Context, it *directItem, st *si
 
 	e.mu.Lock()
 	it.length = length
-	it.done = st.offset
+	it.done, it.loaded = st.offset, true
 	if it.state == StateDownloading && it.note != "refreshing link" {
 		it.note = "" // the connection works again
 	}
@@ -703,7 +707,9 @@ func (e *Engine) directSnapshot(h metainfo.Hash, it *directItem, now time.Time) 
 		State: it.state, Note: it.note,
 		Retrying: it.state == StatePaused && it.autoPending,
 	}
-	if it.state == StateDownloading {
+	if it.state == StateDownloading && !it.loaded {
+		it.samples = ring{} // the resumed bytes are not this run's speed
+	} else if it.state == StateDownloading {
 		it.samples.push(sample{at: now, bytes: it.done})
 		s.SpeedBps = it.samples.speedBps()
 		if s.SpeedBps > 0 && s.Length > s.BytesCompleted {
