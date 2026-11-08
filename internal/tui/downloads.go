@@ -140,6 +140,9 @@ type removeConfirm struct {
 	// default while the item is still in the cloud phase.
 	debrid       bool
 	deleteRemote bool
+	// remoteID is the saved cloud copy of a row that is not in the engine
+	// (a finished download from an earlier run); "" for live rows.
+	remoteID string
 }
 
 // removeDebridDoneMsg ends a debrid remove, which waits on the service.
@@ -160,9 +163,16 @@ type torrentFallbackMsg struct {
 // newRemoveConfirm builds the dialog state for item it.
 func (a *App) newRemoveConfirm(it downloadItem, deleteData bool) *removeConfirm {
 	c := &removeConfirm{item: it, deleteData: deleteData}
-	if it.Live && a.debridDownload(it) {
+	switch {
+	case it.Live && a.debridDownload(it):
 		c.debrid = true
 		c.deleteRemote = it.Route != routeLocal || it.Failed
+	case !it.Live && a.st != nil:
+		// a debrid download finished in an earlier run is only in
+		// state.json; its cloud copy can still be deleted by its saved ID
+		if e := a.st.Find(it.Magnet); e != nil && e.Via != "" && e.RemoteID != "" {
+			c.debrid, c.remoteID = true, e.RemoteID
+		}
 	}
 	return c
 }
@@ -503,6 +513,9 @@ func (a *App) updateRemoveConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "y", "enter":
 		d.confirmRemove = nil
+		if conf.debrid && conf.remoteID != "" {
+			return a, a.removeSavedDebrid(conf)
+		}
 		if conf.debrid {
 			return a, a.removeDebridCmd(conf)
 		}
@@ -529,6 +542,30 @@ func (a *App) removeDebridCmd(conf *removeConfirm) tea.Cmd {
 	return func() tea.Msg {
 		res, err := eng.RemoveWithOptions(it.Hash, opts)
 		return removeDebridDoneMsg{item: it, res: res, err: err}
+	}
+}
+
+// removeSavedDebrid removes a debrid row that is only in state.json, and
+// deletes its cloud copy off the UI thread when asked.
+func (a *App) removeSavedDebrid(conf *removeConfirm) tea.Cmd {
+	it := conf.item
+	if err := a.removeDownload(it, conf.deleteData); err != nil {
+		return a.showError("remove failed: " + err.Error())
+	}
+	if !conf.deleteRemote {
+		a.downloads.snaps = a.eng.Snapshots()
+		a.refreshDownloadItems()
+		return a.saveState()
+	}
+	eng, id := a.eng, conf.remoteID
+	return func() tea.Msg {
+		var res engine.RemoveResult
+		if err := eng.DeleteDebridRemote(context.Background(), id); err != nil {
+			res.RemoteErr, res.Note = err, "cloud copy not deleted: "+debrid.Message(err)
+		} else {
+			res.RemoteDeleted = true
+		}
+		return removeDebridDoneMsg{item: it, res: res}
 	}
 }
 
