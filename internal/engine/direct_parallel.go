@@ -120,7 +120,7 @@ func (e *Engine) runDirectParallel(ctx context.Context, it *directItem, dest str
 	defer cancel()
 	run.cancel = cancel
 	e.mu.Lock()
-	it.done, it.length, it.seg = rangeBytes(manifest.Completed), total, run
+	it.done, it.length, it.seg, it.loaded = rangeBytes(manifest.Completed), total, run, true
 	e.mu.Unlock()
 	defer func() {
 		e.mu.Lock()

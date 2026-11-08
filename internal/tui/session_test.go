@@ -96,3 +96,11 @@ func TestSessionStopWaitsForApprovedAddToBeRecorded(t *testing.T) {
 		t.Fatal("stop discarded a pending approved add")
 	}
 }
+
+// `torkwd status` counted a download still in Real-Debrid's cloud as idle.
+func TestSessionStatusCountsCloudDownloads(t *testing.T) {
+	got := sessionStatus([]engine.Snapshot{{State: engine.StateRemote}, {State: engine.StateDownloading}, {State: engine.StateSeeding}, {State: engine.StateDone}})
+	if got != "2 active · 1 seeding" {
+		t.Fatalf("status = %q", got)
+	}
+}

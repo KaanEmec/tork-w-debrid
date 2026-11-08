@@ -435,8 +435,8 @@ func lostNetwork(err error) bool {
 func (e *Engine) autoRestartDebridLocked(it *debridItem) {
 	it.autoRetries++
 	it.autoPending = true
-	wait := min(debridTuning.autoRetryBase<<min(it.autoRetries-1, 6), max(debridTuning.retryMax, debridTuning.autoRetryBase))
-	it.note = fmt.Sprintf("connection lost - retrying in %s · p retries now", wait.Round(time.Second))
+	wait := autoRetryWait(it.autoRetries, debridTuning.autoRetryBase, debridTuning.retryMax)
+	it.note = autoRetryNote(wait)
 	gen := it.holdGen
 	time.AfterFunc(wait, func() {
 		e.mu.Lock()
@@ -495,6 +495,7 @@ func (e *Engine) stopDebridChildren(it *debridItem) {
 func (e *Engine) debridLocalSnapshot(s *Snapshot, it *debridItem, now time.Time) {
 	var done, length int64
 	started := false
+	loading := false // a file has not read its .part yet: done may still jump
 	note := ""
 	for _, c := range it.children {
 		size := c.size()
@@ -510,6 +511,7 @@ func (e *Engine) debridLocalSnapshot(s *Snapshot, it *debridItem, now time.Time)
 			}
 			// unlocked and handed to the downloader (not just being unlocked)
 			started = started || (c.started && (c.d.state == StateDownloading || c.d.state == StateDone))
+			loading = loading || (c.started && c.d.state == StateDownloading && !c.d.loaded)
 		}
 	}
 	if len(it.children) == 0 {
@@ -547,7 +549,11 @@ func (e *Engine) debridLocalSnapshot(s *Snapshot, it *debridItem, now time.Time)
 		return
 	}
 	s.State = StateDownloading
-	it.samples.push(sample{at: now, bytes: done})
+	if loading {
+		it.samples = ring{} // resumed bytes arriving at once are not speed
+	} else {
+		it.samples.push(sample{at: now, bytes: done})
+	}
 	s.SpeedBps = it.samples.speedBps()
 	if s.SpeedBps > 0 && s.Length > s.BytesCompleted {
 		s.ETA = time.Duration(float64(s.Length-s.BytesCompleted) / s.SpeedBps * float64(time.Second))

@@ -114,6 +114,11 @@ func (a *App) launchDebridDownload(magnet, name string) (tea.Cmd, bool) {
 	if problem != "" {
 		return a.showError(problem), true
 	}
+	if m, err := metainfo.ParseMagnetUri(magnet); err == nil {
+		if e := a.listedEntry(m.InfoHash); e != nil {
+			return a.showListedDownload(e), true
+		}
+	}
 	a.ensureDebridProvider()
 	a.pendingAdds++
 	eng := a.eng

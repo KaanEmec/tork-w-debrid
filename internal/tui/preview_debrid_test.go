@@ -395,3 +395,45 @@ func writeTorrent(t *testing.T, path string, mi *metainfo.MetaInfo) {
 		t.Fatal(err)
 	}
 }
+
+// A torrent already in the list is not started again (that used to say
+// "queued" and do nothing, with the old folder in the preview): the app says
+// so and selects its row, and nothing reaches Real-Debrid.
+func TestTorrentAlreadyInListJumpsToItsRow(t *testing.T) {
+	fake := &previewRD{}
+	a, _, _ := debridPreviewApp(t, fake, "linked")
+	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Sintel"
+	m, err := metainfo.ParseMagnetUri(magnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.st.Upsert(state.Entry{Magnet: magnet, Name: "Sintel", Done: true, Via: "realdebrid", RemoteID: "RID1", Phase: "local"})
+	a.st.Upsert(state.Entry{Magnet: "magnet:?xt=urn:btih:89abcdef0123456789abcdef0123456789abcdef", Name: "Other"})
+
+	check := func(how string) {
+		t.Helper()
+		if a.screen != screenDownloads || !strings.Contains(a.toast.text, "already in your list · Sintel") {
+			t.Fatalf("%s: screen %v, toast %q", how, a.screen, a.toast.text)
+		}
+		if it, ok := a.selectedDownload(a.downloads.items); !ok || it.Name != "Sintel" {
+			t.Fatalf("%s: selected %+v", how, it)
+		}
+		a.screen, a.toast.text = screenResults, ""
+	}
+
+	a.previewSeq = 7
+	a.onDebridPreviewOpen(debridPreviewOpenMsg{gen: 7, src: previewSource{kind: sourceMagnet, value: magnet}, from: screenResults, hash: m.InfoHash})
+	check("preview")
+	if cmd, ok := a.launchDebridDownload(magnet, "Sintel"); !ok || cmd == nil {
+		t.Fatal("download-now did not handle the listed torrent")
+	}
+	check("download now")
+	a.onPreviewReady(previewReadyMsg{hash: m.InfoHash, magnet: magnet, name: "Sintel", from: screenResults})
+	check("torrent preview")
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.adds) != 0 {
+		t.Errorf("sent to Real-Debrid: %v", fake.adds)
+	}
+}

@@ -38,6 +38,8 @@ func scaleDirectTuning(tb testing.TB, f float64) {
 	directTuning.healthInterval = scale(saved.healthInterval)
 	directTuning.healthWindow = scale(saved.healthWindow)
 	directTuning.restartCooldown = scale(saved.restartCooldown)
+	directTuning.autoRetryBase = scale(saved.autoRetryBase)
+	directTuning.autoRetryMax = scale(saved.autoRetryMax)
 }
 
 // readTestManifest reads the segment manifest next to a download.

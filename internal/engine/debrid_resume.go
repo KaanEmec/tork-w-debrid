@@ -35,6 +35,9 @@ type DebridState struct {
 	Phase       string // DebridSavedCloud or DebridSavedLocal
 	// TorrentData is the .torrent the item was added from, or nil for a magnet.
 	TorrentData []byte
+	// Note says how the service sent the files ("Real-Debrid sent one
+	// archive"), or "".
+	Note string
 }
 
 // savedState renders the item for state.json. Caller holds e.mu.
@@ -45,7 +48,7 @@ func (it *debridItem) savedState() *DebridState {
 	}
 	return &DebridState{
 		Via: it.via, RemoteID: it.remoteID, RemoteFiles: slices.Clone(it.selected),
-		Phase: phase, TorrentData: it.torrentData,
+		Phase: phase, TorrentData: it.torrentData, Note: it.localNote,
 	}
 }
 
@@ -66,6 +69,9 @@ func ApplyDebridState(e *state.Entry, s Snapshot) bool {
 	set(&e.Via, d.Via)
 	set(&e.RemoteID, d.RemoteID)
 	set(&e.Phase, d.Phase)
+	if d.Note != "" { // a fresh run has no note until its files are planned
+		set(&e.RemoteNote, d.Note)
+	}
 	if !slices.Equal(e.RemoteFiles, d.RemoteFiles) {
 		e.RemoteFiles, changed = slices.Clone(d.RemoteFiles), true
 	}
@@ -150,7 +156,7 @@ func (e *Engine) ResumeDebrid(entry state.Entry) (metainfo.Hash, error) {
 		hash: h, name: name, magnet: entry.Magnet, torrentData: entry.TorrentData,
 		downloadDir: dir, via: entry.Via, short: viaShort(entry.Via),
 		remoteID: entry.RemoteID, selected: slices.Clone(entry.RemoteFiles),
-		dataPath: entry.DataPath, savedLength: entry.Length,
+		dataPath: entry.DataPath, savedLength: entry.Length, localNote: entry.RemoteNote,
 		wake: make(chan struct{}, 1), showRemote: true,
 		toldNotCached: true, // said in the run that started it
 	}

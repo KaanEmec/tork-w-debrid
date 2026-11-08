@@ -282,6 +282,9 @@ func (a *App) onDebridPreviewOpen(msg debridPreviewOpenMsg) tea.Cmd {
 	if msg.err != nil {
 		return a.showError("preview failed: " + msg.err.Error())
 	}
+	if e := a.listedEntry(msg.hash); e != nil {
+		return a.showListedDownload(e) // nothing sent to Real-Debrid
+	}
 	magnet := ""
 	if msg.src.kind == sourceMagnet {
 		magnet = msg.src.value
@@ -333,6 +336,13 @@ func (a *App) onDebridPreviewAdded(msg debridPreviewAddedMsg) tea.Cmd {
 		p.debridErr = debridProblem(msg.err)
 		p.startPending = false
 		return nil
+	}
+	if e := a.listedEntry(msg.hash); e != nil {
+		if msg.owned {
+			a.eng.CancelDebridPreview(msg.hash)
+		}
+		a.preview = previewModel{}
+		return a.showListedDownload(e)
 	}
 	p.hash, p.owned, p.added = msg.hash, msg.owned, true
 	if msg.magnet != "" {

@@ -580,3 +580,53 @@ func TestTickContinuesWhileDebridRowRetries(t *testing.T) {
 		t.Fatal("the tick stops while a held row waits to restart by itself")
 	}
 }
+
+// A debrid download finished in an earlier run is only in state.json, not in
+// the engine. Removing it must still offer the cloud copy and delete it by
+// the saved remote ID.
+func TestRemoveSavedDebridRowDeletesCloudCopy(t *testing.T) {
+	fake := &previewRD{}
+	a, _, _ := debridPreviewApp(t, fake, "linked")
+	a.screen = screenDownloads
+	magnet := "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Old"
+	a.st.Upsert(state.Entry{Magnet: magnet, Name: "Old", Done: true, Via: "realdebrid", RemoteID: "RID9", Phase: "local"})
+	row := downloadItem{Name: "Old", Magnet: magnet, ViaDebrid: true}
+
+	c := a.newRemoveConfirm(row, false)
+	if !c.debrid || c.deleteRemote || c.remoteID != "RID9" {
+		t.Fatalf("saved debrid row: %+v, want the toggle, off, with RID9", c)
+	}
+	a.downloads.confirmRemove = c
+	a.updateRemoveConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	_, cmd := a.updateRemoveConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("no cloud delete was started")
+	}
+	msg, ok := cmd().(removeDebridDoneMsg)
+	if !ok || !msg.res.RemoteDeleted {
+		t.Fatalf("result %#v", msg)
+	}
+	if a.st.Find(magnet) != nil {
+		t.Error("the row is still in state.json")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.deletes) != 1 || fake.deletes[0] != "RID9" {
+		t.Errorf("deletes = %v, want [RID9]", fake.deletes)
+	}
+
+	// a plain torrent row from state.json gets no toggle
+	a.st.Upsert(state.Entry{Magnet: "magnet:?xt=urn:btih:89abcdef0123456789abcdef0123456789abcdef", Name: "T"})
+	if c := a.newRemoveConfirm(downloadItem{Magnet: "magnet:?xt=urn:btih:89abcdef0123456789abcdef0123456789abcdef"}, false); c.debrid {
+		t.Error("a torrent row offers a cloud copy")
+	}
+}
+
+func TestSavedDebridRowKeepsArchiveNote(t *testing.T) {
+	a := &App{width: 100, height: 30, screen: screenDownloads, downloads: newDownloadsModel()}
+	a.downloads.pathExists = map[string]bool{"/d/Sintel": true}
+	it := a.itemFromEntry(&state.Entry{Magnet: "m", Name: "Sintel", Done: true, DataPath: "/d/Sintel", Via: "realdebrid", RemoteNote: "Real-Debrid sent one archive"}, 0)
+	if it.Note != "Real-Debrid sent one archive" || !showDownloadNote(it.Note) {
+		t.Fatalf("note = %q", it.Note)
+	}
+}
