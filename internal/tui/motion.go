@@ -38,9 +38,8 @@ const (
 	fadeFrames = 3
 )
 
-// frameMsg advances the animation clock by one frame. at is when the tick
-// fired (zero in tests); the intro uses it to stay on the wall clock.
-type frameMsg struct{ at time.Time }
+// frameMsg advances the animation clock by one frame.
+type frameMsg struct{}
 
 func frameCmd(fps int) tea.Cmd {
 	fps = max(1, min(introFPS, fps))
@@ -155,38 +154,7 @@ func (a *App) ensureFrame() tea.Cmd {
 		return nil
 	}
 	a.motion.running = true
-	if a.intro.active {
-		return introTick(a.intro.start)
-	}
 	return frameCmd(a.frameRate())
-}
-
-// introPeriod is one intro frame.
-const introPeriod = time.Second / introFPS
-
-// introTick fires on the next boundary of the intro's frame grid, which starts
-// at start. Re-arming a fixed 33 ms tick after each frame drifts by however
-// long the frame took, and the drift beats against Bubble Tea's own 60 fps
-// renderer, so frames reached the screen 17, 33 or 50 ms apart. On the grid
-// every frame is due exactly 33 ms after the last; a late tick skips ahead.
-func introTick(start time.Time) tea.Cmd {
-	next := introFrameAt(start, time.Now()) + 1
-	due := start.Add(time.Duration(next) * introPeriod)
-	return tea.Tick(time.Until(due), func(t time.Time) tea.Msg { return frameMsg{at: t} })
-}
-
-// introFrameAt is the intro frame due at time at.
-func introFrameAt(start, at time.Time) int {
-	return int(at.Sub(start) / introPeriod)
-}
-
-// nextIntroFrame is the frame to show after a tick: the one the wall clock
-// says, never an earlier one. A tick without a time (tests) moves one frame.
-func nextIntroFrame(frame int, start, at time.Time) int {
-	if at.IsZero() || start.IsZero() {
-		return frame + 1
-	}
-	return max(frame, introFrameAt(start, at))
 }
 
 // onFrame advances the clock; Update re-arms it through ensureFrame while the

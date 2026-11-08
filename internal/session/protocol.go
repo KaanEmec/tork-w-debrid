@@ -213,7 +213,7 @@ func (m *terminalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (c *Client) Run(options ...tea.ProgramOption) (string, error) {
 	defer c.Close()
-	out := clipboard.NewSyncOutput(os.Stdout)
+	out := clipboard.NewOutput(os.Stdout)
 	var clipboardOut io.Writer
 	if term.IsTerminal(os.Stdout.Fd()) {
 		clipboardOut = out

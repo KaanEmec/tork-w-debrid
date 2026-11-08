@@ -560,7 +560,7 @@ func runAutopilot(args []string) error {
 	tui.SetASCIIGlyphs(tui.DetectASCII())
 	app := tui.New(cfg, eng, agg, st, store)
 	app.ShowDownloads()
-	output := clipboard.NewSyncOutput(os.Stdout)
+	output := clipboard.NewOutput(os.Stdout)
 	app.SetClipboardOutput(output)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithOutput(output))
 	if _, err := p.Run(); err != nil {
@@ -663,7 +663,7 @@ func run() error {
 			return err
 		}
 	}
-	output := clipboard.NewSyncOutput(os.Stdout)
+	output := clipboard.NewOutput(os.Stdout)
 	app.SetClipboardOutput(output)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithOutput(output))
 	if _, err := p.Run(); err != nil {

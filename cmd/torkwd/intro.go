@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/term"
 
-	"github.com/kaanemec/tork-w-debrid/internal/clipboard"
 	"github.com/kaanemec/tork-w-debrid/internal/config"
 	"github.com/kaanemec/tork-w-debrid/internal/tui"
 )
@@ -39,7 +38,7 @@ func runIntro(args []string, stdoutTTY, stdinTTY bool, stderr io.Writer) error {
 	if cfg, err := config.LoadReadOnly(); err == nil && !cfg.UI.Motion {
 		motion = false // Settings › Look › animations is off
 	}
-	_, err := tea.NewProgram(tui.NewIntro(resolveVersion(), motion), tea.WithAltScreen(), tea.WithOutput(clipboard.NewSyncOutput(os.Stdout))).Run()
+	_, err := tea.NewProgram(tui.NewIntro(resolveVersion(), motion), tea.WithAltScreen()).Run()
 	return err
 }
 

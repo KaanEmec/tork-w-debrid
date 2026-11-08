@@ -9,38 +9,19 @@ import (
 
 	osclipboard "github.com/atotto/clipboard"
 	"github.com/aymanbagabas/go-osc52/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // Output serializes terminal clipboard sequences with renderer writes.
 type Output struct {
-	mu   sync.Mutex
-	out  io.Writer
-	sync bool
-	buf  []byte
+	mu  sync.Mutex
+	out io.Writer
 }
 
 func NewOutput(out io.Writer) *Output { return &Output{out: out} }
-
-// NewSyncOutput is NewOutput for a Bubble Tea program: each write is wrapped
-// in synchronized output (DEC mode 2026), so the terminal paints a frame only
-// once all of it has arrived instead of halfway through, which tears moving
-// screens such as the intro. Bubble Tea writes each frame with one Write.
-// Terminals without the mode ignore it.
-func NewSyncOutput(out io.Writer) *Output { return &Output{out: out, sync: true} }
-
 func (o *Output) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !o.sync || len(p) == 0 {
-		return o.out.Write(p)
-	}
-	o.buf = append(append(append(o.buf[:0], ansi.SetModeSynchronizedOutput...), p...), ansi.ResetModeSynchronizedOutput...)
-	n, err := o.out.Write(o.buf)
-	if err == nil && n < len(o.buf) {
-		err = io.ErrShortWrite // even a lost closing marker would hold the screen
-	}
-	return min(max(n-len(ansi.SetModeSynchronizedOutput), 0), len(p)), err
+	return o.out.Write(p)
 }
 
 // Preserve the terminal interface through the synchronized writer. Bubble Tea
