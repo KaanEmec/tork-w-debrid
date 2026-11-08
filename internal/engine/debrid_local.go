@@ -398,6 +398,7 @@ func (e *Engine) unlockDebridLink(ctx context.Context, it *debridItem, p debrid.
 func (e *Engine) finishDebridLocked(it *debridItem) (deleteID string) {
 	it.phase, it.cancel = DebridDone, nil
 	it.note, it.err = "", nil
+	it.autoRetries = 0
 	if e.debridDeleteAfter && it.remoteID != "" && !e.closing {
 		it.remoteDeleted = true
 		return it.remoteID
@@ -417,6 +418,33 @@ func (e *Engine) holdDebridLocked(ctx context.Context, it *debridItem, err error
 	it.needsLogin = needsDebridLogin(err) // SetDebridProvider continues it
 	it.err = err
 	it.note = it.holdNote(err, fallback)
+	if lostNetwork(err) && it.autoRetries < debridTuning.autoRetries {
+		e.autoRestartDebridLocked(it)
+	}
+}
+
+// lostNetwork reports a hold a later retry should fix by itself: the files'
+// connections or the service's API could not be reached.
+func lostNetwork(err error) bool {
+	var ne directNetError
+	return errors.As(err, &ne) || transientDebridErr(err)
+}
+
+// autoRestartDebridLocked starts a held item again after a back-off, unless
+// it was resumed, paused or removed in the meantime. Caller holds e.mu.
+func (e *Engine) autoRestartDebridLocked(it *debridItem) {
+	it.autoRetries++
+	it.autoPending = true
+	wait := min(debridTuning.autoRetryBase<<min(it.autoRetries-1, 6), max(debridTuning.retryMax, debridTuning.autoRetryBase))
+	it.note = fmt.Sprintf("connection lost - retrying in %s · p retries now", wait.Round(time.Second))
+	gen := it.holdGen
+	time.AfterFunc(wait, func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if e.debrid[it.hash] == it && it.paused && it.holdGen == gen && !e.closing {
+			e.restartDebridLocked(it)
+		}
+	})
 }
 
 // holdNote words a local-phase failure for the row.
@@ -501,6 +529,7 @@ func (e *Engine) debridLocalSnapshot(s *Snapshot, it *debridItem, now time.Time)
 	switch {
 	case it.paused:
 		s.State = StatePaused
+		s.Retrying = it.autoPending
 		s.Note = it.note
 		if s.Note == "" {
 			s.Note = "paused"

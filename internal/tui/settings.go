@@ -26,6 +26,16 @@ import (
 // value (design.md › Settings).
 const settingLabelWidth = 34
 
+// settingsLayout is the label column and whether the hint column shows. Below
+// 62 columns the hints give way (the footer strip carries the keys) and the
+// label column shrinks, so the values stay readable on a 50-column terminal.
+func settingsLayout(width int) (labelW int, hints bool) {
+	if width >= settingLabelWidth+28 {
+		return settingLabelWidth, true
+	}
+	return max(12, min(settingLabelWidth, width*11/20)), false
+}
+
 // settingRow is one line of a settings section.
 type settingRow interface {
 	label() string
@@ -362,7 +372,8 @@ func (a *App) settingsList(width, height int) string {
 			lines = append(lines, a.settingRowLine(row, selected, width))
 			if n, ok := row.(settingNoter); ok {
 				if note := n.note(a); note != "" {
-					lines = append(lines, strings.Repeat(" ", 2+settingLabelWidth)+note)
+					labelW, _ := settingsLayout(width)
+					lines = append(lines, truncate(strings.Repeat(" ", 2+labelW)+note, width))
 					if selected {
 						cursorLine = len(lines) - 1
 					}
@@ -394,13 +405,15 @@ func (a *App) settingsList(width, height int) string {
 // muted; the selected row gets the accent gutter and the raised background.
 func (a *App) settingRowLine(row settingRow, selected bool, width int) string {
 	inner := width - 1
+	labelW, showHints := settingsLayout(width)
 	hintText := ""
-	if h := row.hint(a); h != "" {
+	if h := row.hint(a); h != "" && showHints {
 		hintText = styleDim.Render(h)
 	}
-	left := " " + padRight(styleText.Render(row.label()), settingLabelWidth) + row.value(a)
+	label := truncate(row.label(), labelW-1)
+	left := " " + padRight(styleText.Render(label), labelW) + row.value(a)
 	if selected {
-		left = " " + padRight(styleFg.Bold(true).Render(row.label()), settingLabelWidth) + row.value(a)
+		left = " " + padRight(styleFg.Bold(true).Render(label), labelW) + row.value(a)
 	}
 	content := left
 	if hintText != "" {

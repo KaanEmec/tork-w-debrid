@@ -123,6 +123,9 @@ type Snapshot struct {
 	// Debrid is what state.json keeps of a debrid item (see
 	// ApplyDebridState), else nil.
 	Debrid *DebridState
+	// Retrying: a debrid download held by a network outage starts again by
+	// itself soon, so the UI keeps watching it.
+	Retrying bool
 }
 
 type MetadataSource string

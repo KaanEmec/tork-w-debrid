@@ -166,6 +166,7 @@ func fastDebrid(t *testing.T, window time.Duration) {
 	debridTuning.queuedPoll = 5 * time.Millisecond
 	debridTuning.retryBase = 5 * time.Millisecond
 	debridTuning.retryMax = 20 * time.Millisecond
+	debridTuning.autoRetryBase = 10 * time.Millisecond
 	debridReadyWindow = window
 	t.Cleanup(func() { debridTuning, debridReadyWindow = oldTuning, oldWindow })
 }

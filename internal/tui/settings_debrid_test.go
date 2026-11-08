@@ -282,3 +282,21 @@ func TestGoldenLinkDialog(t *testing.T) {
 		}
 	}
 }
+
+// At 50 columns every value used to be cut down to "…" by the label and hint
+// columns, so the screen no longer said what was on. The values must show.
+func TestSettingsValuesReadableAt50Columns(t *testing.T) {
+	a := settingsGoldenApp(50, 20)
+	view := ansi.Strip(a.View())
+	assertRenderFits(t, a.View(), 50)
+	for _, want := range []string{"kaan", "1  2  [4]  8  16", "~/Downloads/tork"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("50 columns: %q missing from settings:\n%s", want, view)
+		}
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "use for downloads") && !strings.Contains(line, " on") {
+			t.Errorf("50 columns: use-for-downloads row hides its value: %q", line)
+		}
+	}
+}

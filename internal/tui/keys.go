@@ -258,21 +258,22 @@ func (a *App) screenTitle() string {
 // helpLines wraps the key reference into columns when space allows. Smaller
 // windows can scroll the complete reference instead of clipping shortcuts.
 func (a *App) helpLines() []string {
-	here := strings.Join(helpSection(a.screenTitle(), a.screenKeys()), "\n")
 	navigation := append([]keyHint(nil), globalKeys...)
 	if a.background {
 		navigation[len(navigation)-1].label = "close UI; transfers keep running"
 	}
-	everywhere := strings.Join(helpSection("navigation", navigation), "\n")
 	width := a.contentWidth()
 	var body string
 	if width >= 80 {
 		leftWidth := (width - 4) / 2
-		left := lipgloss.NewStyle().Width(leftWidth).Render(ansi.Wrap(here, leftWidth, ""))
-		right := ansi.Wrap(everywhere, width-leftWidth-4, "")
-		body = lipgloss.JoinHorizontal(lipgloss.Top, left, "    ", right)
+		here := strings.Join(helpSection(a.screenTitle(), a.screenKeys(), leftWidth), "\n")
+		everywhere := strings.Join(helpSection("navigation", navigation, width-leftWidth-4), "\n")
+		left := lipgloss.NewStyle().Width(leftWidth).Render(here)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, "    ", everywhere)
 	} else {
-		body = ansi.Wrap(here+"\n\n"+everywhere, width, "")
+		here := helpSection(a.screenTitle(), a.screenKeys(), width)
+		everywhere := helpSection("navigation", navigation, width)
+		body = strings.Join(append(append(here, ""), everywhere...), "\n")
 	}
 	return strings.Split(body, "\n")
 }
@@ -287,10 +288,20 @@ func (a *App) viewHelp() string {
 	return a.chrome("keys", strings.Join(lines[offset:], "\n"), styleDim.Render(help))
 }
 
-func helpSection(title string, keys []keyHint) []string {
+// helpSection lists keys under a title in a column width cells wide. A label
+// that does not fit wraps under itself (a hanging indent), never back under
+// the keys.
+func helpSection(title string, keys []keyHint, width int) []string {
+	const keyCol = 2 + 16
 	lines := []string{styleTitle.Render(title), ""}
+	labelWidth := max(width-keyCol, 8)
+	indent := strings.Repeat(" ", keyCol)
 	for _, kh := range keys {
-		lines = append(lines, "  "+padRight(styleKey.Render(kh.key), 16)+styleDim.Render(kh.label))
+		label := strings.Split(ansi.Wrap(kh.label, labelWidth, ""), "\n")
+		lines = append(lines, "  "+padRight(styleKey.Render(kh.key), 16)+styleDim.Render(label[0]))
+		for _, more := range label[1:] {
+			lines = append(lines, indent+styleDim.Render(more))
+		}
 	}
 	return lines
 }

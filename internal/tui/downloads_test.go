@@ -566,3 +566,17 @@ func TestSelectedRowDrawsSegmentLineAt80Columns(t *testing.T) {
 		t.Errorf("the segment line shows %d times, want once (selected row only)", n)
 	}
 }
+
+// A debrid row held by a network outage restarts by itself in the engine;
+// the tick must keep running so the row (and state.json) follow it.
+func TestTickContinuesWhileDebridRowRetries(t *testing.T) {
+	a := &App{screen: screenDownloads}
+	a.downloads.snaps = []engine.Snapshot{{State: engine.StatePaused}}
+	if a.tickShouldContinue() {
+		t.Fatal("a plainly paused row keeps the tick running")
+	}
+	a.downloads.snaps[0].Retrying = true
+	if !a.tickShouldContinue() {
+		t.Fatal("the tick stops while a held row waits to restart by itself")
+	}
+}

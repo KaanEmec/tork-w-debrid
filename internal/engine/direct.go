@@ -393,7 +393,7 @@ func (e *Engine) downloadDirectSingle(ctx context.Context, it *directItem, st *s
 		}
 		tries++
 		if tries >= directTuning.maxTries {
-			return fmt.Errorf("failed %d times - %s", tries, lastErrPart(err))
+			return giveUpErr(err, "failed %d times - %s", tries, lastErrPart(err))
 		}
 		delay := directBackoff(tries)
 		if isStatus && status.retryAfter > delay {

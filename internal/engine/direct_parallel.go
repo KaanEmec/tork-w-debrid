@@ -302,11 +302,11 @@ func (e *Engine) recoverSegment(ctx context.Context, it *directItem, run *segmen
 	}
 	tries := run.release(w, true, minDelay, now)
 	if tries >= directTuning.maxTries {
-		run.fail(fmt.Errorf("a segment failed %d times - %s", tries, lastErrPart(err)))
+		run.fail(giveUpErr(err, "a segment failed %d times - %s", tries, lastErrPart(err)))
 		return false
 	}
 	if run.streak() >= 2*directTuning.maxTries {
-		run.fail(fmt.Errorf("every connection keeps failing - %s", lastErrPart(err)))
+		run.fail(giveUpErr(err, "every connection keeps failing - %s", lastErrPart(err)))
 		return false
 	}
 	if kind != errKindBusy {
@@ -510,6 +510,11 @@ func (e *Engine) fetchSegment(ctx context.Context, it *directItem, run *segmentR
 }
 
 func finalizeParallelDirect(it *directItem, part, dest string) error {
+	if it.checksum.Empty() {
+		// Nothing to compare against: reading the whole file back only kept
+		// the row at 100% for seconds (about 10 s for a 4 GB debrid file).
+		return os.Rename(part, dest)
+	}
 	f, err := os.Open(part)
 	if err != nil {
 		return err

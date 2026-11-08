@@ -133,3 +133,22 @@ func TestHelpCardOpensAndAnyKeyCloses(t *testing.T) {
 		t.Fatal("? did not open the card from an empty home field")
 	}
 }
+
+// A long label wraps under itself, not back under the keys: at 120 columns
+// "Real-Debrid refuses it" used to continue at the left edge of the card.
+func TestKeyCardWrapsLabelsWithHangingIndent(t *testing.T) {
+	for _, width := range []int{120, 50} {
+		a := &App{width: width, height: 40, screen: screenDownloads}
+		for _, line := range a.helpLines() {
+			plain := ansi.Strip(line)
+			for _, part := range []string{plain[:min(len(plain), max((a.contentWidth()-4)/2, 0))], plain} {
+				trimmed := strings.TrimLeft(part, " ")
+				if strings.HasPrefix(trimmed, "Debrid refuses it") || strings.HasPrefix(trimmed, "refuses it") {
+					if indent := len(part) - len(trimmed); indent != 18 {
+						t.Errorf("width %d: continuation %q is indented %d, want 18", width, trimmed, indent)
+					}
+				}
+			}
+		}
+	}
+}

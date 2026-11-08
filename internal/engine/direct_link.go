@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -97,6 +99,37 @@ const (
 	errKindFatal                         // give up now
 	errKindRestart                       // slow-connection restart: no try counted
 )
+
+// directNetError marks a transfer that gave up because the network kept
+// failing (refused, reset or timed-out connections, lookups that fail), not
+// because the server answered no. Debrid items retry those by themselves
+// (holdDebridLocked), so a short outage needs no key press.
+type directNetError struct{ err error }
+
+func (e directNetError) Error() string { return e.err.Error() }
+func (e directNetError) Unwrap() error { return e.err }
+
+// isNetworkErr reports a transport failure that got no HTTP answer.
+func isNetworkErr(err error) bool {
+	var op *net.OpError
+	var dns *net.DNSError
+	var status directStatusError
+	if errors.As(err, &status) {
+		return false
+	}
+	return errors.As(err, &op) || errors.As(err, &dns) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, context.DeadlineExceeded)
+}
+
+// giveUpErr wraps the error a transfer stops with, marking a network outage.
+func giveUpErr(last error, format string, args ...any) error {
+	err := fmt.Errorf(format, args...)
+	if isNetworkErr(last) {
+		return directNetError{err}
+	}
+	return err
+}
 
 func classifyDirectErr(err error) directErrKind {
 	var status directStatusError
