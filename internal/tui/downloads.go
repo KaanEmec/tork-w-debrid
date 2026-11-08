@@ -720,6 +720,39 @@ func (a *App) buildDownloadItems() []downloadItem {
 	return out
 }
 
+// listedEntry finds the downloads-list entry (state.json) of infohash h.
+func (a *App) listedEntry(h metainfo.Hash) *state.Entry {
+	if a.st == nil || h == (metainfo.Hash{}) {
+		return nil
+	}
+	for i := range a.st.Entries {
+		e := &a.st.Entries[i]
+		if !strings.HasPrefix(e.Magnet, "magnet:") {
+			continue
+		}
+		if m, err := metainfo.ParseMagnetUri(e.Magnet); err == nil && m.InfoHash == h {
+			return e
+		}
+	}
+	return nil
+}
+
+// showListedDownload is a pasted or chosen torrent that is already in the
+// list: it says so and selects its row, instead of starting it again (which
+// did nothing but say "queued").
+func (a *App) showListedDownload(e *state.Entry) tea.Cmd {
+	name := e.Name
+	if name == "" || name == "?" {
+		name = "this torrent"
+	}
+	d := &a.downloads
+	d.selectedKey, d.selectionPinned = "magnet:"+e.Magnet, true
+	d.snaps = a.eng.Snapshots()
+	cmd := a.navigate(screenDownloads)
+	a.refreshDownloadItems()
+	return tea.Batch(cmd, a.ensureTick(), a.showToast("already in your list · "+name, toastOK, toastLong))
+}
+
 func downloadItemKey(it downloadItem) string {
 	if it.Magnet != "" {
 		return "magnet:" + it.Magnet

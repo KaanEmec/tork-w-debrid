@@ -446,6 +446,12 @@ func (a *App) onPreviewReady(msg previewReadyMsg) tea.Cmd {
 	if msg.err != nil {
 		return a.showError("preview failed: " + msg.err.Error())
 	}
+	if e := a.listedEntry(msg.hash); e != nil {
+		if msg.owned {
+			a.eng.Remove(msg.hash, false) // the preview's own metadata-only add
+		}
+		return a.showListedDownload(e)
+	}
 	a.preview = newPreviewModel(msg.hash, msg.magnet, msg.name, msg.from, msg.owned)
 	a.screen = screenPreview
 	a.preview.refresh(a.eng) // metadata may already be cached
